@@ -1,0 +1,21 @@
+{
+	"name": "aladdin-evergreen-grid",
+	"version": "0.1.0",
+	"description": "Universal Gutenberg content grid for Aladdin Mediterranean Cuisine. Displays any post type (recipes, blog, products, locations) with filters, search, and pagination.",
+	"private": true,
+	"author": "Aladdin Mediterranean Cuisine",
+	"license": "GPL-2.0-or-later",
+	"main": "blocks/src/content-grid/index.js",
+	"scripts": {
+		"build": "wp-scripts build blocks/src/content-grid/index.js blocks/src/content-grid/view.js --output-path=blocks/dist/content-grid && npm run copy-block-json",
+		"start": "wp-scripts start blocks/src/content-grid/index.js blocks/src/content-grid/view.js --output-path=blocks/dist/content-grid",
+		"copy-block-json": "cp blocks/src/content-grid/block.json blocks/dist/content-grid/block.json",
+		"format": "wp-scripts format blocks/src",
+		"lint:js": "wp-scripts lint-js blocks/src",
+		"lint:css": "wp-scripts lint-style blocks/src",
+		"plugin-zip": "wp-scripts plugin-zip"
+	},
+	"devDependencies": {
+		"@wordpress/scripts": "^27.4.0"
+	}
+}

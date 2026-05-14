@@ -1,0 +1,40 @@
+{
+	"$schema": "https://schemas.wp.org/trunk/block.json",
+	"apiVersion": 3,
+	"name": "aladdin-evergreen/content-grid",
+	"title": "Evergreen Content Grid",
+	"category": "widgets",
+	"icon": "grid-view",
+	"description": "Universal content grid — display any post type (recipes, blog, products, locations) with filters, search, and pagination.",
+	"keywords": ["grid", "recipes", "evergreen", "content", "aladdin"],
+	"version": "0.1.0",
+	"textdomain": "aladdin-evergreen-grid",
+	"supports": {
+		"align": ["wide", "full"],
+		"html": false,
+		"spacing": {
+			"padding": true,
+			"margin": true
+		},
+		"color": {
+			"background": true,
+			"text": true,
+			"link": true
+		}
+	},
+	"attributes": {
+		"postType":     { "type": "string",  "default": "wprm_recipe" },
+		"taxonomy":     { "type": "string",  "default": "" },
+		"termIds":      { "type": "array",   "default": [], "items": { "type": "number" } },
+		"columns":      { "type": "number",  "default": 3 },
+		"showFilters":  { "type": "boolean", "default": true },
+		"showSearch":   { "type": "boolean", "default": true },
+		"perPage":      { "type": "number",  "default": 12 },
+		"heading":      { "type": "string",  "default": "" },
+		"showLoadMore": { "type": "boolean", "default": true }
+	},
+	"editorScript": "file:./index.js",
+	"editorStyle":  "file:./index.css",
+	"style":        "file:./style-index.css",
+	"viewScript":   "file:./view.js"
+}

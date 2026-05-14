@@ -1,0 +1,327 @@
+/**
+ * Aladdin Evergreen Grid — frontend styles.
+ *
+ * Brand tokens lifted from the live Aladdin Houston site:
+ *   --aeg-orange     = #E85D20 (CTA)
+ *   --aeg-orange-dark = #D03D00 (hover)
+ *   --aeg-peach      = #FBE2C5 (warm section bg)
+ *   --aeg-cream      = #FDF1E0 (very warm section bg)
+ *   --aeg-text       = #2D2821 (near-black)
+ *   --aeg-muted      = #6B6258
+ *   --aeg-border     = #ECE5DC
+ *
+ * Typography:
+ *   --aeg-font-heading = 'Catamaran', sans-serif
+ *   --aeg-font-body    = 'Poppins', sans-serif
+ */
+
+:root {
+	--aeg-orange: #E85D20;
+	--aeg-orange-dark: #D03D00;
+	--aeg-peach: #FBE2C5;
+	--aeg-cream: #FDF1E0;
+	--aeg-text: #2D2821;
+	--aeg-muted: #6B6258;
+	--aeg-border: #ECE5DC;
+	--aeg-white: #FFFEFE;
+	--aeg-font-heading: 'Catamaran', 'Poppins', -apple-system, sans-serif;
+	--aeg-font-body: 'Poppins', -apple-system, sans-serif;
+}
+
+.aeg-grid {
+	font-family: var(--aeg-font-body);
+	color: var(--aeg-text);
+	max-width: 100%;
+
+	*,
+	*::before,
+	*::after {
+		box-sizing: border-box;
+	}
+
+	&__heading {
+		font-family: var(--aeg-font-heading);
+		font-weight: 800;
+		font-size: clamp(2rem, 3.5vw, 2.6rem);
+		letter-spacing: -0.5px;
+		text-align: center;
+		margin: 0 0 24px;
+		color: var(--aeg-text);
+	}
+
+	&__controls {
+		display: flex;
+		flex-wrap: wrap;
+		gap: 16px;
+		justify-content: space-between;
+		align-items: center;
+		margin-bottom: 32px;
+	}
+
+	&__search {
+		flex: 1 1 240px;
+		min-width: 200px;
+		border: 1.5px solid var(--aeg-border);
+		border-radius: 999px;
+		padding: 12px 18px;
+		font-family: inherit;
+		font-size: 14px;
+		background: var(--aeg-white);
+		outline: none;
+		transition: border-color 0.15s;
+
+		&:focus {
+			border-color: var(--aeg-orange);
+		}
+	}
+
+	&__filters {
+		display: flex;
+		flex-wrap: wrap;
+		gap: 8px;
+	}
+
+	&__filter {
+		font-family: var(--aeg-font-body);
+		font-weight: 600;
+		font-size: 12px;
+		letter-spacing: 1.5px;
+		text-transform: uppercase;
+		padding: 9px 18px;
+		border-radius: 999px;
+		border: 1.5px solid var(--aeg-border);
+		background: var(--aeg-white);
+		color: var(--aeg-text);
+		cursor: pointer;
+		transition: all 0.15s ease;
+
+		&:hover {
+			color: var(--aeg-orange);
+			border-color: var(--aeg-orange);
+		}
+
+		&--active {
+			background: var(--aeg-orange);
+			color: #fff;
+			border-color: var(--aeg-orange);
+
+			&:hover {
+				color: #fff;
+				background: var(--aeg-orange-dark);
+			}
+		}
+	}
+
+	&__items {
+		display: grid;
+		gap: 32px 24px;
+		grid-template-columns: 1fr;
+	}
+
+	@media (min-width: 640px) {
+		&--cols-2 .aeg-grid__items,
+		&--cols-3 .aeg-grid__items,
+		&--cols-4 .aeg-grid__items { grid-template-columns: repeat(2, 1fr); }
+	}
+
+	@media (min-width: 960px) {
+		&--cols-3 .aeg-grid__items { grid-template-columns: repeat(3, 1fr); }
+		&--cols-4 .aeg-grid__items { grid-template-columns: repeat(4, 1fr); }
+	}
+
+	&__pagination {
+		text-align: center;
+		margin-top: 48px;
+	}
+
+	&__load-more {
+		background: var(--aeg-orange);
+		color: #fff;
+		border: 0;
+		padding: 14px 38px;
+		border-radius: 999px;
+		font-family: var(--aeg-font-body);
+		font-weight: 700;
+		font-size: 13px;
+		letter-spacing: 2px;
+		text-transform: uppercase;
+		cursor: pointer;
+		transition: all 0.2s;
+
+		&:hover {
+			background: var(--aeg-orange-dark);
+			transform: translateY(-2px);
+			box-shadow: 0 8px 22px rgba(232, 93, 32, 0.3);
+		}
+
+		&[hidden] {
+			display: none;
+		}
+	}
+
+	&__empty,
+	&__error {
+		grid-column: 1 / -1;
+		text-align: center;
+		padding: 40px 20px;
+		color: var(--aeg-muted);
+		font-size: 14px;
+	}
+
+	&__retry {
+		margin-top: 12px;
+		background: transparent;
+		border: 1.5px solid var(--aeg-orange);
+		color: var(--aeg-orange);
+		padding: 10px 24px;
+		border-radius: 999px;
+		font-family: inherit;
+		font-weight: 600;
+		font-size: 13px;
+		cursor: pointer;
+		transition: all 0.2s;
+
+		&:hover {
+			background: var(--aeg-orange);
+			color: #fff;
+		}
+	}
+}
+
+.aeg-card {
+	display: flex;
+	flex-direction: column;
+	background: var(--aeg-white);
+	border: 1px solid var(--aeg-border);
+	border-radius: 16px;
+	overflow: hidden;
+	text-decoration: none;
+	color: inherit;
+	transition: all 0.3s ease;
+	cursor: pointer;
+
+	&:hover {
+		transform: translateY(-5px);
+		box-shadow: 0 18px 36px rgba(0, 0, 0, 0.08);
+		border-color: var(--aeg-orange);
+	}
+
+	&__image {
+		aspect-ratio: 4 / 3;
+		overflow: hidden;
+		background: var(--aeg-cream);
+
+		img {
+			width: 100%;
+			height: 100%;
+			object-fit: cover;
+			display: block;
+			transition: transform 0.6s ease;
+		}
+	}
+
+	&:hover .aeg-card__image img {
+		transform: scale(1.06);
+	}
+
+	&__body {
+		padding: 22px 22px 24px;
+		display: flex;
+		flex-direction: column;
+		gap: 10px;
+		flex: 1;
+	}
+
+	&__title {
+		font-family: var(--aeg-font-heading);
+		font-weight: 800;
+		font-size: 22px;
+		line-height: 1.2;
+		letter-spacing: -0.3px;
+		margin: 0;
+		color: var(--aeg-text);
+		transition: color 0.15s;
+	}
+
+	&:hover .aeg-card__title {
+		color: var(--aeg-orange);
+	}
+
+	&__excerpt {
+		font-size: 14px;
+		color: var(--aeg-muted);
+		line-height: 1.55;
+		margin: 0;
+		display: -webkit-box;
+		-webkit-line-clamp: 2;
+		-webkit-box-orient: vertical;
+		overflow: hidden;
+	}
+
+	&__meta-row {
+		margin-top: auto;
+		padding-top: 14px;
+		border-top: 1px solid var(--aeg-border);
+		display: flex;
+		gap: 12px;
+		flex-wrap: wrap;
+		font-size: 12px;
+		font-weight: 600;
+		color: var(--aeg-muted);
+		letter-spacing: 0.5px;
+		text-transform: uppercase;
+	}
+
+	&__rating {
+		color: var(--aeg-orange);
+	}
+
+	&__diet,
+	&__price {
+		background: var(--aeg-peach);
+		color: var(--aeg-text);
+		padding: 3px 10px;
+		border-radius: 999px;
+	}
+
+	&__time {
+		color: var(--aeg-muted);
+	}
+
+	&--skeleton {
+		pointer-events: none;
+
+		&:hover {
+			transform: none;
+			box-shadow: none;
+			border-color: var(--aeg-border);
+		}
+	}
+
+	&__image-skeleton {
+		aspect-ratio: 4 / 3;
+		background: linear-gradient(90deg, #f0eee8 0%, #f7f5f0 50%, #f0eee8 100%);
+		background-size: 200% 100%;
+		animation: aeg-shimmer 1.4s linear infinite;
+	}
+
+	&__line-skeleton {
+		height: 14px;
+		background: linear-gradient(90deg, #f0eee8 0%, #f7f5f0 50%, #f0eee8 100%);
+		background-size: 200% 100%;
+		animation: aeg-shimmer 1.4s linear infinite;
+		margin: 16px 22px 0;
+		border-radius: 4px;
+
+		&--short {
+			width: 60%;
+			margin-top: 10px;
+			margin-bottom: 20px;
+		}
+	}
+}
+
+@keyframes aeg-shimmer {
+	0% { background-position: 200% 0; }
+	100% { background-position: -200% 0; }
+}

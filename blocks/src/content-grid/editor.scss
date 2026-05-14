@@ -1,0 +1,9 @@
+/**
+ * Aladdin Evergreen Grid — editor-only styles (loaded inside Gutenberg).
+ */
+
+.wp-block[data-type="aladdin-evergreen/content-grid"] {
+	.aeg-card {
+		pointer-events: none; // prevent links inside the editor
+	}
+}
