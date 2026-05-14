@@ -15,6 +15,82 @@ if ( ! defined( 'ABSPATH' ) ) {
 class AEG_Helpers {
 
 	/**
+	 * Single source of truth for post types that should never appear in the
+	 * editor picker or the public endpoint, regardless of public/REST flags.
+	 *
+	 * @return string[]
+	 */
+	public static function get_excluded_post_types() {
+		return apply_filters(
+			'aeg_excluded_post_types',
+			array(
+				'attachment',
+				'nav_menu_item',
+				'wp_block',
+				'wp_template',
+				'wp_template_part',
+				'wp_navigation',
+				'revision',
+				'customize_changeset',
+				'oembed_cache',
+				'user_request',
+			)
+		);
+	}
+
+	/**
+	 * Safe mb-aware substr — falls back to substr() if the mbstring extension is missing.
+	 *
+	 * @param string $str  Input string.
+	 * @param int    $len  Max length.
+	 * @return string
+	 */
+	public static function safe_substr( $str, $len ) {
+		if ( function_exists( 'mb_substr' ) ) {
+			return mb_substr( $str, 0, $len );
+		}
+		return substr( $str, 0, $len );
+	}
+
+	/**
+	 * Safe mb-aware strlen.
+	 *
+	 * @param string $str Input string.
+	 * @return int
+	 */
+	public static function safe_strlen( $str ) {
+		if ( function_exists( 'mb_strlen' ) ) {
+			return mb_strlen( $str );
+		}
+		return strlen( $str );
+	}
+
+	/**
+	 * Format a WPRM time (which is just a minute count) into a human string.
+	 *
+	 * @param string|int $minutes Raw minutes value.
+	 * @return string
+	 */
+	public static function format_time( $minutes ) {
+		$mins = absint( $minutes );
+		if ( $mins <= 0 ) {
+			return '';
+		}
+		if ( $mins < 60 ) {
+			/* translators: %d: minutes */
+			return sprintf( _n( '%d min', '%d min', $mins, 'aladdin-evergreen-grid' ), $mins );
+		}
+		$hours    = (int) floor( $mins / 60 );
+		$leftover = $mins % 60;
+		if ( 0 === $leftover ) {
+			/* translators: %d: hours */
+			return sprintf( _n( '%d hr', '%d hr', $hours, 'aladdin-evergreen-grid' ), $hours );
+		}
+		/* translators: 1: hours, 2: minutes */
+		return sprintf( __( '%1$dh %2$dm', 'aladdin-evergreen-grid' ), $hours, $leftover );
+	}
+
+	/**
 	 * Sanitize a CSV string or array of term IDs into a unique list of positive ints.
 	 *
 	 * @param mixed $term_ids Raw input (CSV string, array, or scalar).
@@ -131,24 +207,34 @@ class AEG_Helpers {
 		);
 
 		if ( 'wprm_recipe' === $post_type ) {
-			$course = self::get_term_names( $post_id, 'wprm_course' );
-			$meta   = array_merge(
+			$course   = self::get_term_names( $post_id, 'wprm_course' );
+			$raw_time = sanitize_text_field( get_post_meta( $post_id, 'wprm_total_time', true ) );
+			$meta     = array_merge(
 				$meta,
 				array(
-					'calories' => sanitize_text_field( get_post_meta( $post_id, 'wprm_nutrition_calories', true ) ),
-					'rating'   => (float) get_post_meta( $post_id, 'wprm_rating_average', true ),
-					'time'     => sanitize_text_field( get_post_meta( $post_id, 'wprm_total_time', true ) ),
-					'diet'     => self::get_term_names( $post_id, 'wprm_diet' ),
-					'course'   => ! empty( $course ) ? $course[0] : '',
+					'rating' => (float) get_post_meta( $post_id, 'wprm_rating_average', true ),
+					'time'   => self::format_time( $raw_time ),
+					'diet'   => self::get_term_names( $post_id, 'wprm_diet' ),
+					'course' => ! empty( $course ) ? $course[0] : '',
 				)
 			);
 		}
 
 		if ( 'product' === $post_type ) {
+			$raw_price = get_post_meta( $post_id, '_price', true );
+			$price_str = '';
+
+			// Use WC's currency formatting if WooCommerce is active.
+			if ( '' !== $raw_price && function_exists( 'wc_price' ) ) {
+				$price_str = html_entity_decode( wp_strip_all_tags( wc_price( $raw_price ) ), ENT_QUOTES, 'UTF-8' );
+			} else {
+				$price_str = sanitize_text_field( $raw_price );
+			}
+
 			$meta = array_merge(
 				$meta,
 				array(
-					'price' => sanitize_text_field( get_post_meta( $post_id, '_price', true ) ),
+					'price' => $price_str,
 					'sku'   => sanitize_text_field( get_post_meta( $post_id, '_sku', true ) ),
 				)
 			);
@@ -172,6 +258,9 @@ class AEG_Helpers {
 	 * @return array
 	 */
 	public static function build_query_args( $params ) {
+		// no_found_rows costs SQL_CALC_FOUND_ROWS — only run when we need pagination total.
+		$needs_total = empty( $params['skip_total'] );
+
 		$args = array(
 			'post_type'              => $params['post_type'],
 			'post_status'            => 'publish',
@@ -180,7 +269,7 @@ class AEG_Helpers {
 			'orderby'                => $params['orderby'],
 			'order'                  => $params['order'],
 			'ignore_sticky_posts'    => true,
-			'no_found_rows'          => false,
+			'no_found_rows'          => ! $needs_total,
 			'update_post_term_cache' => true,
 			'update_post_meta_cache' => true,
 		);

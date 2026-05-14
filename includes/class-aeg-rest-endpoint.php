@@ -18,10 +18,13 @@ class AEG_REST_Endpoint {
 
 	const NAMESPACE_PREFIX  = 'aladdin-evergreen/v1';
 	const CACHE_PREFIX      = 'aeg_grid_';
+	const CACHE_GROUP       = 'aeg_grid';
 	const CACHE_TTL         = 5 * MINUTE_IN_SECONDS;
-	const MAX_PAGE          = 500;
+	const MAX_PAGE          = 100;
 	const MAX_SEARCH_LENGTH = 100;
 	const MAX_TERMS         = 100;
+	const RATE_LIMIT_WINDOW = 60;   // seconds
+	const RATE_LIMIT_HITS   = 120;  // requests per IP per window
 
 	/**
 	 * Wire up REST routes + cache invalidation.
@@ -31,12 +34,76 @@ class AEG_REST_Endpoint {
 	public static function init() {
 		add_action( 'rest_api_init', array( __CLASS__, 'register_routes' ) );
 
-		// Invalidate the grid cache whenever underlying data changes.
-		add_action( 'save_post', array( __CLASS__, 'flush_cache' ) );
-		add_action( 'deleted_post', array( __CLASS__, 'flush_cache' ) );
-		add_action( 'edited_term', array( __CLASS__, 'flush_cache' ) );
-		add_action( 'created_term', array( __CLASS__, 'flush_cache' ) );
-		add_action( 'delete_term', array( __CLASS__, 'flush_cache' ) );
+		// Invalidate the grid cache only when relevant content changes.
+		add_action( 'save_post', array( __CLASS__, 'maybe_flush_on_post_save' ), 10, 2 );
+		add_action( 'deleted_post', array( __CLASS__, 'maybe_flush_on_post_delete' ), 10, 2 );
+		add_action( 'edited_term', array( __CLASS__, 'maybe_flush_on_term_change' ), 10, 3 );
+		add_action( 'created_term', array( __CLASS__, 'maybe_flush_on_term_change' ), 10, 3 );
+		add_action( 'delete_term', array( __CLASS__, 'maybe_flush_on_term_change' ), 10, 3 );
+	}
+
+	/**
+	 * Flush only if the saved post is in the allow-list.
+	 *
+	 * @param int     $post_id Post ID.
+	 * @param WP_Post $post    Post object.
+	 * @return void
+	 */
+	public static function maybe_flush_on_post_save( $post_id, $post ) {
+		if ( wp_is_post_revision( $post_id ) || wp_is_post_autosave( $post_id ) ) {
+			return;
+		}
+		if ( ! $post instanceof WP_Post ) {
+			return;
+		}
+		if ( ! in_array( $post->post_type, self::get_allowed_post_types(), true ) ) {
+			return;
+		}
+		self::schedule_flush();
+	}
+
+	/**
+	 * Flush only if the deleted post is in the allow-list.
+	 *
+	 * @param int     $post_id Post ID.
+	 * @param WP_Post $post    Post object (may be null on older WP).
+	 * @return void
+	 */
+	public static function maybe_flush_on_post_delete( $post_id, $post = null ) {
+		if ( $post instanceof WP_Post && ! in_array( $post->post_type, self::get_allowed_post_types(), true ) ) {
+			return;
+		}
+		self::schedule_flush();
+	}
+
+	/**
+	 * Flush only if the changed term belongs to a taxonomy our endpoint can serve.
+	 *
+	 * @param int    $term_id  Term ID.
+	 * @param int    $tt_id    Term-taxonomy ID.
+	 * @param string $taxonomy Taxonomy slug.
+	 * @return void
+	 */
+	public static function maybe_flush_on_term_change( $term_id, $tt_id, $taxonomy ) {
+		$tax = get_taxonomy( $taxonomy );
+		if ( ! $tax || ! $tax->public || ! $tax->show_in_rest ) {
+			return;
+		}
+		self::schedule_flush();
+	}
+
+	/**
+	 * Defer the actual flush to shutdown so we don't block the save request.
+	 *
+	 * @return void
+	 */
+	protected static function schedule_flush() {
+		static $scheduled = false;
+		if ( $scheduled ) {
+			return;
+		}
+		$scheduled = true;
+		add_action( 'shutdown', array( __CLASS__, 'flush_cache' ) );
 	}
 
 	/**
@@ -48,7 +115,7 @@ class AEG_REST_Endpoint {
 	 */
 	public static function get_allowed_post_types() {
 		$all     = get_post_types( array( 'public' => true, 'show_in_rest' => true ), 'names' );
-		$blocked = array( 'attachment' );
+		$blocked = AEG_Helpers::get_excluded_post_types();
 
 		foreach ( $blocked as $b ) {
 			unset( $all[ $b ] );
@@ -88,7 +155,7 @@ class AEG_REST_Endpoint {
 	}
 
 	/**
-	 * Flush all grid transients.
+	 * Flush all grid transients (DB-backed) and the object-cache group.
 	 *
 	 * @return void
 	 */
@@ -103,6 +170,32 @@ class AEG_REST_Endpoint {
 				$wpdb->esc_like( '_transient_timeout_' . self::CACHE_PREFIX ) . '%'
 			)
 		);
+
+		// Persistent object cache (Redis/Memcached on Kinsta) — flush our group.
+		if ( function_exists( 'wp_cache_flush_group' ) ) {
+			wp_cache_flush_group( self::CACHE_GROUP );
+		}
+	}
+
+	/**
+	 * Lightweight per-IP rate limit using transients.
+	 *
+	 * @return bool True when the request is allowed, false when over the limit.
+	 */
+	protected static function rate_limit_ok() {
+		// Logged-in users (editors etc.) are not rate-limited.
+		if ( is_user_logged_in() ) {
+			return true;
+		}
+		$ip = isset( $_SERVER['REMOTE_ADDR'] ) ? sanitize_text_field( wp_unslash( $_SERVER['REMOTE_ADDR'] ) ) : 'unknown';
+		// Hash so we never store raw IPs in wp_options.
+		$key = 'aeg_rl_' . substr( md5( $ip ), 0, 16 );
+		$hits = (int) get_transient( $key );
+		if ( $hits >= self::RATE_LIMIT_HITS ) {
+			return false;
+		}
+		set_transient( $key, $hits + 1, self::RATE_LIMIT_WINDOW );
+		return true;
 	}
 
 	/**
@@ -165,6 +258,15 @@ class AEG_REST_Endpoint {
 	 * @return WP_REST_Response|WP_Error
 	 */
 	public static function get_items( WP_REST_Request $request ) {
+		// Anti-abuse throttle. Editor requests via apiFetch use logged-in users → exempt.
+		if ( ! self::rate_limit_ok() ) {
+			return new WP_Error(
+				'aeg_rate_limited',
+				__( 'Too many requests. Please slow down.', 'aladdin-evergreen-grid' ),
+				array( 'status' => 429 )
+			);
+		}
+
 		$params = self::sanitize_params( $request );
 
 		// Validate against the allow-list, not just post_type_exists.
@@ -265,8 +367,14 @@ class AEG_REST_Endpoint {
 		$page      = min( self::MAX_PAGE, max( 1, absint( $request->get_param( 'page' ) ?: 1 ) ) );
 		$term_ids  = AEG_Helpers::sanitize_term_ids( $request->get_param( 'term_ids' ) );
 
-		if ( mb_strlen( $search ) > self::MAX_SEARCH_LENGTH ) {
-			$search = mb_substr( $search, 0, self::MAX_SEARCH_LENGTH );
+		// Enforce term ID cap to prevent oversized IN (...) queries.
+		if ( count( $term_ids ) > self::MAX_TERMS ) {
+			$term_ids = array_slice( $term_ids, 0, self::MAX_TERMS );
+		}
+
+		// mbstring-safe length cap on search.
+		if ( AEG_Helpers::safe_strlen( $search ) > self::MAX_SEARCH_LENGTH ) {
+			$search = AEG_Helpers::safe_substr( $search, self::MAX_SEARCH_LENGTH );
 		}
 
 		if ( ! in_array( $orderby, $orderby_allowed, true ) ) {

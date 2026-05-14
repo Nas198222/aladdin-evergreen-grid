@@ -4,7 +4,7 @@
  * Pickers: postType → taxonomy → terms. Plus columns / filters / search / perPage.
  */
 import { __ } from '@wordpress/i18n';
-import { useState, useEffect } from '@wordpress/element';
+import { useState, useEffect, useRef } from '@wordpress/element';
 import {
 	InspectorControls,
 	useBlockProps,
@@ -18,11 +18,22 @@ import {
 	CheckboxControl,
 	Spinner,
 	Placeholder,
-	Button,
 } from '@wordpress/components';
 import apiFetch from '@wordpress/api-fetch';
 
-const POST_TYPES_EXCLUDE = [ 'attachment', 'nav_menu_item', 'wp_block', 'wp_template', 'wp_template_part', 'wp_navigation' ];
+// Single source of truth for excluded post types — must match AEG_Helpers::get_excluded_post_types() on the PHP side.
+const POST_TYPES_EXCLUDE = [
+	'attachment',
+	'nav_menu_item',
+	'wp_block',
+	'wp_template',
+	'wp_template_part',
+	'wp_navigation',
+	'revision',
+	'customize_changeset',
+	'oembed_cache',
+	'user_request',
+];
 
 export default function Edit( { attributes, setAttributes } ) {
 	const {
@@ -40,8 +51,13 @@ export default function Edit( { attributes, setAttributes } ) {
 	const [ postTypes, setPostTypes ] = useState( [] );
 	const [ taxonomies, setTaxonomies ] = useState( [] );
 	const [ terms, setTerms ] = useState( [] );
-	const [ previewItems, setPreviewItems ] = useState( [] );
+	const [ previewItems, setPreviewItems ] = useState( null ); // null = haven't fetched yet
 	const [ loading, setLoading ] = useState( { postTypes: true, taxonomies: false, terms: false, preview: false } );
+
+	// Track latest request per effect so a slow response can be dropped.
+	const taxRequestId = useRef( 0 );
+	const termRequestId = useRef( 0 );
+	const previewRequestId = useRef( 0 );
 
 	// Load post types once on mount.
 	useEffect( () => {
@@ -56,53 +72,69 @@ export default function Edit( { attributes, setAttributes } ) {
 			.catch( () => setLoading( ( s ) => ( { ...s, postTypes: false } ) ) );
 	}, [] );
 
-	// Load taxonomies when postType changes.
+	// Load taxonomies when postType changes — guards against stale responses.
 	useEffect( () => {
 		if ( ! postType ) {
 			setTaxonomies( [] );
 			return;
 		}
+		const myId = ++taxRequestId.current;
 		setLoading( ( s ) => ( { ...s, taxonomies: true } ) );
 		apiFetch( { path: `/aladdin-evergreen/v1/taxonomies?post_type=${ encodeURIComponent( postType ) }` } )
 			.then( ( res ) => {
+				if ( myId !== taxRequestId.current ) return; // Superseded
 				setTaxonomies( res || [] );
 				setLoading( ( s ) => ( { ...s, taxonomies: false } ) );
 			} )
-			.catch( () => setLoading( ( s ) => ( { ...s, taxonomies: false } ) ) );
+			.catch( () => {
+				if ( myId !== taxRequestId.current ) return;
+				setLoading( ( s ) => ( { ...s, taxonomies: false } ) );
+			} );
 	}, [ postType ] );
 
-	// Load terms when taxonomy changes.
+	// Load terms when taxonomy changes — guards against stale responses.
 	useEffect( () => {
 		if ( ! taxonomy ) {
 			setTerms( [] );
 			return;
 		}
+		const myId = ++termRequestId.current;
 		setLoading( ( s ) => ( { ...s, terms: true } ) );
 		apiFetch( { path: `/aladdin-evergreen/v1/terms?taxonomy=${ encodeURIComponent( taxonomy ) }` } )
 			.then( ( res ) => {
+				if ( myId !== termRequestId.current ) return;
 				setTerms( res || [] );
 				setLoading( ( s ) => ( { ...s, terms: false } ) );
 			} )
-			.catch( () => setLoading( ( s ) => ( { ...s, terms: false } ) ) );
+			.catch( () => {
+				if ( myId !== termRequestId.current ) return;
+				setLoading( ( s ) => ( { ...s, terms: false } ) );
+			} );
 	}, [ taxonomy ] );
 
-	// Load preview items.
+	// Load preview items — guards against stale responses, uses configured perPage.
 	useEffect( () => {
 		if ( ! postType ) return;
+		const myId = ++previewRequestId.current;
 		setLoading( ( s ) => ( { ...s, preview: true } ) );
 		const params = new URLSearchParams( {
 			post_type: postType,
-			per_page: Math.min( columns * 2, 6 ),
+			per_page: Math.min( perPage, 12 ), // cap editor preview at 12 for performance
 			taxonomy: taxonomy || '',
 			term_ids: ( termIds || [] ).join( ',' ),
 		} );
 		apiFetch( { path: `/aladdin-evergreen/v1/grid-items?${ params.toString() }` } )
 			.then( ( res ) => {
+				if ( myId !== previewRequestId.current ) return;
 				setPreviewItems( res.items || [] );
 				setLoading( ( s ) => ( { ...s, preview: false } ) );
 			} )
-			.catch( () => setLoading( ( s ) => ( { ...s, preview: false } ) ) );
-	}, [ postType, taxonomy, JSON.stringify( termIds ), columns ] );
+			.catch( () => {
+				if ( myId !== previewRequestId.current ) return;
+				setPreviewItems( [] );
+				setLoading( ( s ) => ( { ...s, preview: false } ) );
+			} );
+	}, [ postType, taxonomy, termIds.join( ',' ), perPage ] );
 
 	const toggleTermId = ( id, checked ) => {
 		const next = checked ? [ ...termIds, id ] : termIds.filter( ( t ) => t !== id );
@@ -198,7 +230,7 @@ export default function Edit( { attributes, setAttributes } ) {
 
 			<div { ...blockProps }>
 				{ heading && <h2 className="aeg-grid__heading">{ heading }</h2> }
-				{ loading.preview ? (
+				{ loading.preview || previewItems === null ? (
 					<Placeholder
 						icon="grid-view"
 						label={ __( 'Loading preview…', 'aladdin-evergreen-grid' ) }

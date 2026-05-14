@@ -18,10 +18,19 @@ if ( ! defined( 'ABSPATH' ) ) {
 	exit;
 }
 
-define( 'AEG_VERSION', '0.1.0' );
+define( 'AEG_VERSION', '0.2.0' );
 define( 'AEG_PATH', plugin_dir_path( __FILE__ ) );
 define( 'AEG_URL', plugin_dir_url( __FILE__ ) );
 define( 'AEG_FILE', __FILE__ );
+
+register_activation_hook( AEG_FILE, function () {
+	// Reserve for future activation logic (rewrite rules, options init).
+	flush_rewrite_rules();
+} );
+
+register_deactivation_hook( AEG_FILE, function () {
+	flush_rewrite_rules();
+} );
 
 require_once AEG_PATH . 'includes/class-aeg-helpers.php';
 require_once AEG_PATH . 'includes/class-aeg-rest-endpoint.php';

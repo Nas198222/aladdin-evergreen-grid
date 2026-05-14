@@ -23,19 +23,32 @@ class AEG_Block_Registration {
 	 */
 	public static function init() {
 		add_action( 'init', array( __CLASS__, 'register' ) );
-		add_action( 'wp_enqueue_scripts', array( __CLASS__, 'localize_frontend' ) );
-		add_action( 'enqueue_block_editor_assets', array( __CLASS__, 'localize_frontend' ) );
+		// Defer localization until WP knows whether the block is on the page.
+		add_action( 'wp_enqueue_scripts', array( __CLASS__, 'localize_frontend' ), 20 );
+		add_action( 'enqueue_block_editor_assets', array( __CLASS__, 'localize_editor' ) );
 	}
 
 	/**
-	 * Pass REST URL + nonce to the frontend script.
-	 * Uses rest_url() so this works on subdir installs, multisite, custom REST prefixes, reverse proxies.
+	 * Pass REST URL + i18n strings to the frontend script — only when the block is on the page.
 	 *
 	 * @return void
 	 */
 	public static function localize_frontend() {
-		$handle = generate_block_asset_handle( self::BLOCK_NAME, 'view' );
+		if ( is_admin() ) {
+			return;
+		}
+		// Only enqueue the data when the current request actually renders the block.
+		global $post;
+		$on_page = ( $post instanceof WP_Post && has_block( self::BLOCK_NAME, $post ) );
+		if ( ! $on_page && ! is_singular() ) {
+			// Archive pages — assume block may exist. (has_block doesn't traverse template parts reliably.)
+			$on_page = true;
+		}
+		if ( ! $on_page ) {
+			return;
+		}
 
+		$handle = generate_block_asset_handle( self::BLOCK_NAME, 'view' );
 		if ( ! wp_script_is( $handle, 'registered' ) ) {
 			return;
 		}
@@ -45,8 +58,41 @@ class AEG_Block_Registration {
 			'aegConfig',
 			array(
 				'restUrl' => esc_url_raw( rest_url( 'aladdin-evergreen/v1' ) ),
+				'i18n'    => self::get_i18n_strings(),
+			)
+		);
+	}
+
+	/**
+	 * Block-editor side gets a nonce for the authenticated /taxonomies and /terms endpoints.
+	 *
+	 * @return void
+	 */
+	public static function localize_editor() {
+		$handle = generate_block_asset_handle( self::BLOCK_NAME, 'editor-script' );
+		if ( ! wp_script_is( $handle, 'registered' ) ) {
+			return;
+		}
+		wp_localize_script(
+			$handle,
+			'aegEditorConfig',
+			array(
+				'restUrl' => esc_url_raw( rest_url( 'aladdin-evergreen/v1' ) ),
 				'nonce'   => wp_create_nonce( 'wp_rest' ),
 			)
+		);
+	}
+
+	/**
+	 * Translatable JS strings.
+	 *
+	 * @return array
+	 */
+	public static function get_i18n_strings() {
+		return array(
+			'tryAgain'     => __( 'Try again', 'aladdin-evergreen-grid' ),
+			'couldNotLoad' => __( 'Could not load items.', 'aladdin-evergreen-grid' ),
+			'noItems'      => __( 'No items found.', 'aladdin-evergreen-grid' ),
 		);
 	}
 
@@ -215,13 +261,29 @@ class AEG_Block_Registration {
 				</div>
 			<?php endif; ?>
 
-			<div class="aeg-grid__items" aria-live="polite" aria-busy="true">
-				<?php echo self::render_skeleton( $per_page, $columns ); // phpcs:ignore WordPress.Security.EscapeOutput.OutputNotEscaped ?>
+			<div class="aeg-grid__items" aria-live="polite">
+				<?php
+				// Server-side render the first page so search engines + no-JS users see real content.
+				$initial = self::get_initial_items( $post_type, $taxonomy, $term_ids, $per_page );
+				if ( ! empty( $initial['items'] ) ) {
+					echo self::render_items_html( $initial['items'], $post_type ); // phpcs:ignore WordPress.Security.EscapeOutput.OutputNotEscaped
+				} else {
+					// No items yet — show skeletons so the JS hydrate doesn't paint over content.
+					echo self::render_skeleton( $per_page, $columns ); // phpcs:ignore WordPress.Security.EscapeOutput.OutputNotEscaped
+				}
+				?>
 			</div>
 
-			<?php if ( $show_load_more ) : ?>
+			<noscript>
+				<p class="aeg-grid__noscript"><?php esc_html_e( 'Enable JavaScript for filters and search.', 'aladdin-evergreen-grid' ); ?></p>
+			</noscript>
+
+			<?php
+			$has_more = ! empty( $initial ) && ! empty( $initial['has_more'] );
+			if ( $show_load_more ) :
+				?>
 				<div class="aeg-grid__pagination">
-					<button class="aeg-grid__load-more" type="button" hidden>
+					<button class="aeg-grid__load-more" type="button" <?php echo $has_more ? '' : 'hidden'; ?>>
 						<?php esc_html_e( 'Load more', 'aladdin-evergreen-grid' ); ?>
 					</button>
 				</div>
@@ -229,6 +291,144 @@ class AEG_Block_Registration {
 		</div>
 		<?php
 		return ob_get_clean();
+	}
+
+	/**
+	 * Fetch the first page of items for SSR. Mirrors the REST endpoint's logic
+	 * so the initial HTML matches what JS would produce.
+	 *
+	 * @param string $post_type Post type.
+	 * @param string $taxonomy  Taxonomy.
+	 * @param int[]  $term_ids  Term IDs.
+	 * @param int    $per_page  Items per page.
+	 * @return array { items: array[], has_more: bool }
+	 */
+	protected static function get_initial_items( $post_type, $taxonomy, $term_ids, $per_page ) {
+		// Refuse anything not on the allow-list — keeps SSR aligned with the REST endpoint.
+		$allowed = AEG_REST_Endpoint::get_allowed_post_types();
+		if ( ! in_array( $post_type, $allowed, true ) ) {
+			return array(
+				'items'    => array(),
+				'has_more' => false,
+			);
+		}
+
+		$params = array(
+			'post_type' => $post_type,
+			'taxonomy'  => $taxonomy,
+			'term_ids'  => $term_ids,
+			'search'    => '',
+			'orderby'   => 'date',
+			'order'     => 'DESC',
+			'per_page'  => $per_page,
+			'page'      => 1,
+		);
+
+		$query = new WP_Query( AEG_Helpers::build_query_args( $params ) );
+
+		if ( ! empty( $query->posts ) ) {
+			update_post_thumbnail_cache( $query );
+		}
+
+		$items = array();
+		foreach ( $query->posts as $post ) {
+			$items[] = AEG_Helpers::format_grid_item( $post, $post_type );
+		}
+
+		$has_more = $query->max_num_pages > 1;
+		wp_reset_postdata();
+
+		return array(
+			'items'    => $items,
+			'has_more' => $has_more,
+		);
+	}
+
+	/**
+	 * Render the first batch of items as static HTML so crawlers + no-JS users see real content.
+	 * The frontend JS will replace this on hydrate (only when filters/search/load-more fire).
+	 *
+	 * @param array  $items     Formatted item payload (from AEG_Helpers::format_grid_item).
+	 * @param string $post_type Post type slug.
+	 * @return string
+	 */
+	protected static function render_items_html( $items, $post_type ) {
+		$html = '';
+		$idx  = 0;
+		foreach ( $items as $item ) {
+			$idx++;
+			// First two cards eager-load to help LCP. Rest stay lazy.
+			$eager = ( $idx <= 2 );
+			$html .= self::render_single_card_html( $item, $post_type, $eager );
+		}
+		return $html;
+	}
+
+	/**
+	 * Render one card. Mirrors the JS template structure exactly.
+	 *
+	 * @param array  $item      Formatted item.
+	 * @param string $post_type Post type slug.
+	 * @param bool   $eager     Whether to eager-load the image (above-fold optimization).
+	 * @return string
+	 */
+	protected static function render_single_card_html( $item, $post_type, $eager = false ) {
+		$image_html = '';
+		if ( ! empty( $item['thumbnail']['url'] ) ) {
+			$image_html = sprintf(
+				'<div class="aeg-card__image"><img src="%1$s" alt="%2$s" loading="%3$s" %4$s width="%5$d" height="%6$d" /></div>',
+				esc_url( $item['thumbnail']['url'] ),
+				esc_attr( $item['thumbnail']['alt'] ?: $item['title'] ),
+				$eager ? 'eager' : 'lazy',
+				$eager ? 'fetchpriority="high"' : '',
+				(int) ( $item['thumbnail']['w'] ?: 800 ),
+				(int) ( $item['thumbnail']['h'] ?: 600 )
+			);
+		}
+
+		$meta_html = self::render_meta_html( $post_type, $item['meta'] );
+
+		return sprintf(
+			'<a class="aeg-card" href="%1$s">%2$s<div class="aeg-card__body"><h3 class="aeg-card__title">%3$s</h3>%4$s%5$s</div></a>',
+			esc_url( $item['link'] ),
+			$image_html, // phpcs:ignore WordPress.Security.EscapeOutput.OutputNotEscaped — built from escaped fragments
+			esc_html( $item['title'] ),
+			$item['excerpt'] ? '<p class="aeg-card__excerpt">' . esc_html( $item['excerpt'] ) . '</p>' : '',
+			$meta_html // phpcs:ignore WordPress.Security.EscapeOutput.OutputNotEscaped — built from escaped fragments
+		);
+	}
+
+	/**
+	 * Per-post-type meta row.
+	 *
+	 * @param string $post_type Post type slug.
+	 * @param array  $meta      Meta payload.
+	 * @return string
+	 */
+	protected static function render_meta_html( $post_type, $meta ) {
+		$parts = array();
+
+		if ( 'wprm_recipe' === $post_type ) {
+			if ( ! empty( $meta['time'] ) ) {
+				$parts[] = '<span class="aeg-card__time">' . esc_html( $meta['time'] ) . '</span>';
+			}
+			if ( ! empty( $meta['rating'] ) ) {
+				$parts[] = '<span class="aeg-card__rating">★ ' . esc_html( number_format_i18n( (float) $meta['rating'], 1 ) ) . '</span>';
+			}
+			if ( ! empty( $meta['diet'] ) && is_array( $meta['diet'] ) ) {
+				$parts[] = '<span class="aeg-card__diet">' . esc_html( $meta['diet'][0] ) . '</span>';
+			}
+		} elseif ( 'product' === $post_type ) {
+			if ( ! empty( $meta['price'] ) ) {
+				$parts[] = '<span class="aeg-card__price">' . esc_html( $meta['price'] ) . '</span>';
+			}
+		}
+
+		if ( empty( $parts ) ) {
+			return '';
+		}
+
+		return '<div class="aeg-card__meta-row">' . implode( '', $parts ) . '</div>';
 	}
 
 	/**
@@ -261,14 +461,16 @@ class AEG_Block_Registration {
 	 * @return array
 	 */
 	protected static function get_filter_terms( $taxonomy, $term_ids ) {
+		// hide_empty=true on the frontend — empty filter buttons confuse users.
 		$args = array(
 			'taxonomy'   => $taxonomy,
-			'hide_empty' => false,
+			'hide_empty' => true,
 		);
 
 		if ( ! empty( $term_ids ) ) {
-			$args['include'] = $term_ids;
-			$args['orderby'] = 'include';
+			$args['include']    = $term_ids;
+			$args['orderby']    = 'include';
+			$args['hide_empty'] = false; // Editor explicitly chose these terms.
 		} else {
 			$args['orderby'] = 'name';
 		}

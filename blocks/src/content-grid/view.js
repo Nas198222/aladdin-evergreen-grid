@@ -2,17 +2,37 @@
  * Aladdin Evergreen Grid — Frontend hydration (vanilla JS, no jQuery).
  *
  * Picks up every .aeg-grid wrapper rendered by the PHP render_callback and:
- *   - fetches initial items from the REST endpoint
  *   - wires up filter buttons (debounced)
  *   - wires up the search box (debounced)
  *   - handles "Load more" pagination
  *   - shows skeleton loaders during fetch
  *   - shows error retry state on failure
+ *
+ * The PHP render_callback already produced the first page of items, so the JS
+ * only refetches when the user changes a filter, types in search, or pages.
  */
+import './style.scss';
 
-// Localized from PHP via wp_localize_script (window.aegConfig.restUrl).
-// Falls back to a sensible default if the localization didn't run.
-const REST_BASE = ( ( window.aegConfig && window.aegConfig.restUrl ) || '/wp-json/aladdin-evergreen/v1' ).replace( /\/+$/, '' );
+// Localized from PHP via wp_localize_script (window.aegConfig).
+const CONFIG = ( typeof window !== 'undefined' && window.aegConfig ) || {};
+const REST_BASE = ( CONFIG.restUrl || '/wp-json/aladdin-evergreen/v1' ).replace( /\/+$/, '' );
+const STRINGS = Object.assign(
+	{
+		tryAgain: 'Try again',
+		couldNotLoad: 'Could not load items.',
+		noItems: 'No items found.',
+	},
+	CONFIG.i18n || {}
+);
+
+// Whitelist of URL schemes safe to put in href/src.
+const SAFE_SCHEMES = /^(https?:|mailto:|tel:|\/|#)/i;
+const safeUrl = ( url ) => {
+	if ( typeof url !== 'string' ) return '';
+	const trimmed = url.trim();
+	if ( ! trimmed ) return '';
+	return SAFE_SCHEMES.test( trimmed ) ? trimmed : '';
+};
 
 const debounce = ( fn, ms ) => {
 	let t;
@@ -45,7 +65,8 @@ const renderSkeleton = ( count ) => {
 const renderRecipeMeta = ( meta ) => {
 	const parts = [];
 	if ( meta?.time ) parts.push( `<span class="aeg-card__time">${ escapeHtml( meta.time ) }</span>` );
-	if ( meta?.rating ) parts.push( `<span class="aeg-card__rating">★ ${ Number( meta.rating ).toFixed( 1 ) }</span>` );
+	// 0-rating is rendered intentionally — visible "not yet rated" state.
+	if ( meta?.rating != null ) parts.push( `<span class="aeg-card__rating">★ ${ Number( meta.rating ).toFixed( 1 ) }</span>` );
 	if ( Array.isArray( meta?.diet ) && meta.diet.length ) {
 		parts.push( `<span class="aeg-card__diet">${ escapeHtml( meta.diet[ 0 ] ) }</span>` );
 	}
@@ -54,7 +75,8 @@ const renderRecipeMeta = ( meta ) => {
 
 const renderProductMeta = ( meta ) => {
 	const parts = [];
-	if ( meta?.price ) parts.push( `<span class="aeg-card__price">$${ escapeHtml( meta.price ) }</span>` );
+	// PHP side already formats price via wc_price() with the right currency symbol.
+	if ( meta?.price ) parts.push( `<span class="aeg-card__price">${ escapeHtml( meta.price ) }</span>` );
 	return parts.join( '' );
 };
 
@@ -66,12 +88,20 @@ const renderMeta = ( postType, meta ) => {
 	return renderDefaultMeta( meta );
 };
 
-const renderCard = ( item, postType ) => {
-	const img = item.thumbnail?.url
-		? `<div class="aeg-card__image"><img src="${ escapeHtml( item.thumbnail.url ) }" alt="${ escapeHtml( item.thumbnail.alt || item.title ) }" loading="lazy" width="${ item.thumbnail.w || '' }" height="${ item.thumbnail.h || '' }" /></div>`
+const renderCard = ( item, postType, eager = false ) => {
+	const url = safeUrl( item.thumbnail?.url );
+	const link = safeUrl( item.link );
+	const w = Number( item.thumbnail?.w ) > 0 ? Number( item.thumbnail.w ) : 800;
+	const h = Number( item.thumbnail?.h ) > 0 ? Number( item.thumbnail.h ) : 600;
+	const loading = eager ? 'eager' : 'lazy';
+	const priority = eager ? ' fetchpriority="high"' : '';
+
+	const img = url
+		? `<div class="aeg-card__image"><img src="${ escapeHtml( url ) }" alt="${ escapeHtml( item.thumbnail?.alt || item.title || '' ) }" loading="${ loading }"${ priority } width="${ w }" height="${ h }" /></div>`
 		: '';
 	const meta = renderMeta( postType, item.meta );
-	return `<a class="aeg-card" href="${ escapeHtml( item.link ) }">
+
+	return `<a class="aeg-card" href="${ escapeHtml( link ) }">
 		${ img }
 		<div class="aeg-card__body">
 			<h3 class="aeg-card__title">${ escapeHtml( item.title ) }</h3>
@@ -84,7 +114,7 @@ const renderCard = ( item, postType ) => {
 const renderError = ( msg ) =>
 	`<div class="aeg-grid__error">
 		<p>${ escapeHtml( msg ) }</p>
-		<button class="aeg-grid__retry" type="button">Try again</button>
+		<button class="aeg-grid__retry" type="button">${ escapeHtml( STRINGS.tryAgain ) }</button>
 	</div>`;
 
 class AEG_Grid {
@@ -92,7 +122,7 @@ class AEG_Grid {
 		this.root = root;
 		this.postType = root.dataset.postType || '';
 		this.taxonomy = root.dataset.taxonomy || '';
-		this.termIdsBase = ( root.dataset.termIds || '' ).split( ',' ).filter( Boolean ).map( Number );
+		this.termIdsBase = ( root.dataset.termIds || '' ).split( ',' ).filter( Boolean ).map( Number ).filter( ( n ) => Number.isFinite( n ) );
 		this.columns = parseInt( root.dataset.columns, 10 ) || 3;
 		this.perPage = parseInt( root.dataset.perPage, 10 ) || 12;
 		this.showLoadMore = root.dataset.showLoadMore === '1';
@@ -102,6 +132,18 @@ class AEG_Grid {
 		this.filterEls = Array.from( root.querySelectorAll( '.aeg-grid__filter' ) );
 		this.loadMoreEl = root.querySelector( '.aeg-grid__load-more' );
 
+		// Bail gracefully if the markup doesn't match what we expect (mis-pasted HTML, etc.).
+		if ( ! this.itemsEl ) {
+			return;
+		}
+
+		// Wire aria-controls so screen readers know which region the controls govern.
+		if ( ! this.itemsEl.id ) {
+			this.itemsEl.id = `aeg-items-${ Math.random().toString( 36 ).slice( 2, 9 ) }`;
+		}
+		if ( this.searchEl ) this.searchEl.setAttribute( 'aria-controls', this.itemsEl.id );
+		this.filterEls.forEach( ( b ) => b.setAttribute( 'aria-controls', this.itemsEl.id ) );
+
 		this.state = {
 			search: '',
 			termId: '',
@@ -110,8 +152,8 @@ class AEG_Grid {
 
 		this.inflight = null; // AbortController for the active fetch
 
+		// PHP already SSR'd the first page — don't refetch on mount.
 		this.bind();
-		this.fetchInitial();
 	}
 
 	bind() {
@@ -204,7 +246,7 @@ class AEG_Grid {
 				if ( this.loadMoreEl ) this.loadMoreEl.hidden = false;
 			} else {
 				// Initial/filter/search failure: replace the grid with retry UI.
-				this.itemsEl.innerHTML = renderError( 'Could not load items.' );
+				this.itemsEl.innerHTML = renderError( STRINGS.couldNotLoad );
 				const retry = this.itemsEl.querySelector( '.aeg-grid__retry' );
 				if ( retry ) {
 					retry.addEventListener( 'click', () => {
@@ -223,12 +265,13 @@ class AEG_Grid {
 
 	renderItems( data, append ) {
 		const items = data.items || [];
-		const html = items.map( ( i ) => renderCard( i, this.postType ) ).join( '' );
+		// Append fetches are below-fold by definition → never eager.
+		const html = items.map( ( i, idx ) => renderCard( i, this.postType, ! append && idx < 2 ) ).join( '' );
 
 		if ( append ) {
 			this.itemsEl.insertAdjacentHTML( 'beforeend', html );
 		} else {
-			this.itemsEl.innerHTML = html || '<p class="aeg-grid__empty">No items found.</p>';
+			this.itemsEl.innerHTML = html || `<p class="aeg-grid__empty">${ escapeHtml( STRINGS.noItems ) }</p>`;
 		}
 
 		if ( this.loadMoreEl ) {
