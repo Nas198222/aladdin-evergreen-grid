@@ -40,6 +40,44 @@ class AEG_REST_Endpoint {
 		add_action( 'edited_term', array( __CLASS__, 'maybe_flush_on_term_change' ), 10, 3 );
 		add_action( 'created_term', array( __CLASS__, 'maybe_flush_on_term_change' ), 10, 3 );
 		add_action( 'delete_term', array( __CLASS__, 'maybe_flush_on_term_change' ), 10, 3 );
+
+		// Override WP's default rest_send_nocache_headers when our endpoint is hit + user is anon.
+		add_filter( 'rest_post_dispatch', array( __CLASS__, 'maybe_override_cache_headers' ), 99, 3 );
+	}
+
+	/**
+	 * After WP dispatches the REST response, re-apply our public cache headers
+	 * because WP core sends rest_send_nocache_headers which overrides them.
+	 *
+	 * @param WP_HTTP_Response $result  Response.
+	 * @param WP_REST_Server   $server  Server.
+	 * @param WP_REST_Request  $request Request.
+	 * @return WP_HTTP_Response
+	 */
+	public static function maybe_override_cache_headers( $result, $server, $request ) {
+		$route = $request->get_route();
+		if ( 0 !== strpos( $route, '/' . self::NAMESPACE_PREFIX . '/grid-items' ) ) {
+			return $result;
+		}
+		if ( is_user_logged_in() ) {
+			return $result;
+		}
+		if ( ! ( $result instanceof WP_HTTP_Response ) ) {
+			return $result;
+		}
+		// Replace cache headers, then send them on the wire.
+		$cache_value = sprintf( 'public, max-age=60, s-maxage=%d, stale-while-revalidate=120', self::CACHE_TTL );
+		$result->set_headers(
+			array_merge(
+				$result->get_headers(),
+				array( 'Cache-Control' => $cache_value )
+			)
+		);
+		// Defensive: also call header() in case WP has already flushed.
+		if ( ! headers_sent() ) {
+			header( 'Cache-Control: ' . $cache_value, true );
+		}
+		return $result;
 	}
 
 	/**
