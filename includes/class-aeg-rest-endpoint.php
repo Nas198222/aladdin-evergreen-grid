@@ -41,43 +41,63 @@ class AEG_REST_Endpoint {
 		add_action( 'created_term', array( __CLASS__, 'maybe_flush_on_term_change' ), 10, 3 );
 		add_action( 'delete_term', array( __CLASS__, 'maybe_flush_on_term_change' ), 10, 3 );
 
-		// Override WP's default rest_send_nocache_headers when our endpoint is hit + user is anon.
-		add_filter( 'rest_post_dispatch', array( __CLASS__, 'maybe_override_cache_headers' ), 99, 3 );
+		// Override WP's rest_send_nocache_headers at the actual point it runs — rest_pre_serve_request.
+		// WP registers rest_send_nocache_headers at priority 0 on rest_pre_serve_request; we run at 99 after it.
+		add_filter( 'rest_pre_serve_request', array( __CLASS__, 'force_public_cache_headers' ), 99, 4 );
+
+		// Belt-and-suspenders: filter nocache_headers() itself to return our cache headers for our route.
+		add_filter( 'nocache_headers', array( __CLASS__, 'filter_nocache_headers' ), 99, 1 );
 	}
 
 	/**
-	 * After WP dispatches the REST response, re-apply our public cache headers
-	 * because WP core sends rest_send_nocache_headers which overrides them.
+	 * If the current request is our REST endpoint + user is anon, replace the WP nocache header set.
 	 *
-	 * @param WP_HTTP_Response $result  Response.
-	 * @param WP_REST_Server   $server  Server.
-	 * @param WP_REST_Request  $request Request.
-	 * @return WP_HTTP_Response
+	 * @param array $headers Default nocache headers.
+	 * @return array
 	 */
-	public static function maybe_override_cache_headers( $result, $server, $request ) {
-		$route = $request->get_route();
-		if ( 0 !== strpos( $route, '/' . self::NAMESPACE_PREFIX . '/grid-items' ) ) {
-			return $result;
+	public static function filter_nocache_headers( $headers ) {
+		// Only override on REST requests to our route.
+		if ( ! defined( 'REST_REQUEST' ) || ! REST_REQUEST ) {
+			return $headers;
+		}
+		$uri = isset( $_SERVER['REQUEST_URI'] ) ? wp_unslash( $_SERVER['REQUEST_URI'] ) : '';
+		if ( false === strpos( $uri, '/' . self::NAMESPACE_PREFIX . '/grid-items' ) ) {
+			return $headers;
 		}
 		if ( is_user_logged_in() ) {
-			return $result;
+			return $headers;
 		}
-		if ( ! ( $result instanceof WP_HTTP_Response ) ) {
-			return $result;
-		}
-		// Replace cache headers, then send them on the wire.
-		$cache_value = sprintf( 'public, max-age=60, s-maxage=%d, stale-while-revalidate=120', self::CACHE_TTL );
-		$result->set_headers(
-			array_merge(
-				$result->get_headers(),
-				array( 'Cache-Control' => $cache_value )
-			)
+		return array(
+			'Cache-Control' => sprintf( 'public, max-age=60, s-maxage=%d, stale-while-revalidate=120', self::CACHE_TTL ),
+			'Expires'       => '',
 		);
-		// Defensive: also call header() in case WP has already flushed.
-		if ( ! headers_sent() ) {
-			header( 'Cache-Control: ' . $cache_value, true );
+	}
+
+	/**
+	 * After WP's nocache filter runs, replace headers on the wire for our endpoint when anon.
+	 *
+	 * @param bool             $served  Whether the response has already been served.
+	 * @param WP_HTTP_Response $result  Response.
+	 * @param WP_REST_Request  $request Request.
+	 * @param WP_REST_Server   $server  Server.
+	 * @return bool
+	 */
+	public static function force_public_cache_headers( $served, $result, $request, $server ) {
+		$route = $request->get_route();
+		if ( 0 !== strpos( $route, '/' . self::NAMESPACE_PREFIX . '/grid-items' ) ) {
+			return $served;
 		}
-		return $result;
+		if ( is_user_logged_in() ) {
+			return $served;
+		}
+		if ( headers_sent() ) {
+			return $served;
+		}
+		$cache_value = sprintf( 'public, max-age=60, s-maxage=%d, stale-while-revalidate=120', self::CACHE_TTL );
+		// header() with replace=true overrides whatever rest_send_nocache_headers set.
+		header( 'Cache-Control: ' . $cache_value, true );
+		header_remove( 'Expires' );
+		return $served;
 	}
 
 	/**
@@ -124,7 +144,8 @@ class AEG_REST_Endpoint {
 	 */
 	public static function maybe_flush_on_term_change( $term_id, $tt_id, $taxonomy ) {
 		$tax = get_taxonomy( $taxonomy );
-		if ( ! $tax || ! $tax->public || ! $tax->show_in_rest ) {
+		// G19: Match the grid-items filter rule (public OR show_in_rest), not the stricter AND.
+		if ( ! $tax || ( ! $tax->public && ! $tax->show_in_rest ) ) {
 			return;
 		}
 		self::schedule_flush();
@@ -200,8 +221,18 @@ class AEG_REST_Endpoint {
 	 * @return void
 	 */
 	public static function flush_cache() {
+		// G8: With persistent object cache (Redis on Kinsta), transients live in the object cache,
+		// NOT in wp_options. wp_cache_flush_group() handles that case. Bump a generation key as
+		// the universal fallback — every cache_key incorporates it, so increment = instant invalidation.
+		$gen = (int) get_option( 'aeg_cache_gen', 0 );
+		update_option( 'aeg_cache_gen', $gen + 1, false );
+
+		if ( function_exists( 'wp_cache_flush_group' ) ) {
+			wp_cache_flush_group( self::CACHE_GROUP );
+		}
+
+		// Also clean up DB-backed transients for sites without object cache.
 		global $wpdb;
-		// Targeted flush of our transient prefix.
 		// phpcs:ignore WordPress.DB.DirectDatabaseQuery
 		$wpdb->query(
 			$wpdb->prepare(
@@ -210,11 +241,17 @@ class AEG_REST_Endpoint {
 				$wpdb->esc_like( '_transient_timeout_' . self::CACHE_PREFIX ) . '%'
 			)
 		);
+	}
 
-		// Persistent object cache (Redis/Memcached on Kinsta) — flush our group.
-		if ( function_exists( 'wp_cache_flush_group' ) ) {
-			wp_cache_flush_group( self::CACHE_GROUP );
-		}
+	/**
+	 * Build a cache key that includes the current generation so flush_cache() invalidates instantly.
+	 *
+	 * @param array $params Sanitized request params.
+	 * @return string
+	 */
+	protected static function build_cache_key( $params ) {
+		$gen = (int) get_option( 'aeg_cache_gen', 0 );
+		return self::CACHE_PREFIX . $gen . '_' . md5( maybe_serialize( $params ) );
 	}
 
 	/**
@@ -309,6 +346,19 @@ class AEG_REST_Endpoint {
 
 		$params = self::sanitize_params( $request );
 
+		// G17: 400 when raw page exceeds MAX_PAGE (rather than silently capping).
+		if ( $params['page_raw'] > self::MAX_PAGE ) {
+			return new WP_Error(
+				'aeg_page_out_of_range',
+				sprintf(
+					/* translators: %d: max page */
+					__( 'Page out of range. Max is %d.', 'aladdin-evergreen-grid' ),
+					self::MAX_PAGE
+				),
+				array( 'status' => 400 )
+			);
+		}
+
 		// Validate against the allow-list, not just post_type_exists.
 		$allowed_post_types = self::get_allowed_post_types();
 		if ( ! in_array( $params['post_type'], $allowed_post_types, true ) ) {
@@ -338,7 +388,7 @@ class AEG_REST_Endpoint {
 			}
 		}
 
-		$cache_key = self::CACHE_PREFIX . md5( maybe_serialize( $params ) );
+		$cache_key = self::build_cache_key( $params );
 		$cached    = get_transient( $cache_key );
 
 		if ( false !== $cached ) {
@@ -423,8 +473,11 @@ class AEG_REST_Endpoint {
 		$search    = sanitize_text_field( $as_string( $request->get_param( 'search' ) ) );
 		$orderby   = sanitize_key( $as_string( $request->get_param( 'orderby' ) ?: 'date' ) );
 		$order     = strtoupper( sanitize_key( $as_string( $request->get_param( 'order' ) ?: 'DESC' ) ) );
-		$per_page  = min( 50, max( 1, absint( $request->get_param( 'per_page' ) ?: 12 ) ) );
-		$page      = min( self::MAX_PAGE, max( 1, absint( $request->get_param( 'page' ) ?: 1 ) ) );
+		// G20: Coerce arrays before absint to avoid PHP 8.2 array-to-string warnings.
+		$per_page = min( 50, max( 1, absint( $as_string( $request->get_param( 'per_page' ) ?: 12 ) ) ) );
+		// G17: Keep the raw page so caller can detect out-of-range and 400.
+		$page_raw  = absint( $as_string( $request->get_param( 'page' ) ?: 1 ) );
+		$page      = max( 1, $page_raw );
 		$term_ids  = AEG_Helpers::sanitize_term_ids( $request->get_param( 'term_ids' ) );
 
 		// Enforce term ID cap to prevent oversized IN (...) queries.
@@ -454,6 +507,7 @@ class AEG_REST_Endpoint {
 			'order'     => $order,
 			'per_page'  => $per_page,
 			'page'      => $page,
+			'page_raw'  => $page_raw,
 		);
 	}
 
@@ -517,8 +571,9 @@ class AEG_REST_Endpoint {
 			);
 		}
 
+		// G6: Match the grid-items filter rule (public OR show_in_rest), not AND, so WPRM taxonomies work here too.
 		$tax_object = get_taxonomy( $taxonomy );
-		if ( ! $tax_object || ! $tax_object->public || ! $tax_object->show_in_rest ) {
+		if ( ! $tax_object || ( ! $tax_object->public && ! $tax_object->show_in_rest ) ) {
 			return new WP_Error(
 				'aeg_taxonomy_not_public',
 				__( 'Taxonomy is not publicly available.', 'aladdin-evergreen-grid' ),

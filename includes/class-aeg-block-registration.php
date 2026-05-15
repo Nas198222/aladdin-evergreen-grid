@@ -26,6 +26,10 @@ class AEG_Block_Registration {
 		// Defer localization until WP knows whether the block is on the page.
 		add_action( 'wp_enqueue_scripts', array( __CLASS__, 'localize_frontend' ), 20 );
 		add_action( 'enqueue_block_editor_assets', array( __CLASS__, 'localize_editor' ) );
+		// G12: Enqueue Playfair Display via fonts.bunny.net (CSP-allowed) + preconnect.
+		add_action( 'wp_enqueue_scripts', array( __CLASS__, 'enqueue_fonts' ), 5 );
+		add_action( 'enqueue_block_editor_assets', array( __CLASS__, 'enqueue_fonts' ) );
+		add_filter( 'wp_resource_hints', array( __CLASS__, 'resource_hints' ), 10, 2 );
 		// Hide duplicate page-title H1 when the block is on the page (theme-agnostic).
 		add_filter( 'the_title', array( __CLASS__, 'maybe_hide_page_title' ), 999, 2 );
 	}
@@ -73,7 +77,8 @@ class AEG_Block_Registration {
 			return;
 		}
 
-		$handle = generate_block_asset_handle( self::BLOCK_NAME, 'view' );
+		// G3: WP expects block.json field names — 'viewScript' / 'editorScript', not 'view' / 'editor-script'.
+		$handle = generate_block_asset_handle( self::BLOCK_NAME, 'viewScript' );
 		if ( ! wp_script_is( $handle, 'registered' ) ) {
 			return;
 		}
@@ -89,12 +94,43 @@ class AEG_Block_Registration {
 	}
 
 	/**
+	 * G12: Enqueue Playfair Display from fonts.bunny.net (privacy-friendly + CSP-allowed by Aladdin).
+	 *
+	 * @return void
+	 */
+	public static function enqueue_fonts() {
+		wp_enqueue_style(
+			'aeg-playfair',
+			'https://fonts.bunny.net/css?family=playfair-display:700,700i&display=swap',
+			array(),
+			null
+		);
+	}
+
+	/**
+	 * G12: Preconnect hints for the font CDN.
+	 *
+	 * @param array  $urls          Resource hints array.
+	 * @param string $relation_type Hint type.
+	 * @return array
+	 */
+	public static function resource_hints( $urls, $relation_type ) {
+		if ( 'preconnect' === $relation_type ) {
+			$urls[] = array(
+				'href'        => 'https://fonts.bunny.net',
+				'crossorigin' => 'anonymous',
+			);
+		}
+		return $urls;
+	}
+
+	/**
 	 * Block-editor side gets a nonce for the authenticated /taxonomies and /terms endpoints.
 	 *
 	 * @return void
 	 */
 	public static function localize_editor() {
-		$handle = generate_block_asset_handle( self::BLOCK_NAME, 'editor-script' );
+		$handle = generate_block_asset_handle( self::BLOCK_NAME, 'editorScript' );
 		if ( ! wp_script_is( $handle, 'registered' ) ) {
 			return;
 		}
@@ -285,21 +321,40 @@ class AEG_Block_Registration {
 			$wrap_classes .= ' aeg-grid--featured';
 		}
 
+		// G5: Merge in block supports (align, spacing, color, custom class) via get_block_wrapper_attributes.
+		$wrapper_attrs = function_exists( 'get_block_wrapper_attributes' )
+			? get_block_wrapper_attributes(
+				array(
+					'class'           => $wrap_classes,
+					'data-post-type'  => $post_type,
+					'data-taxonomy'   => $taxonomy,
+					'data-term-ids'   => implode( ',', $term_ids ),
+					'data-columns'    => $columns,
+					'data-show-filters' => $show_filters ? '1' : '0',
+					'data-show-search'  => $show_search ? '1' : '0',
+					'data-per-page'   => $per_page,
+					'data-show-load-more' => $show_load_more ? '1' : '0',
+					'data-aeg-version' => AEG_VERSION, // C-L4
+				)
+			)
+			: sprintf(
+				'class="%s" data-post-type="%s" data-taxonomy="%s" data-term-ids="%s" data-columns="%d" data-show-filters="%s" data-show-search="%s" data-per-page="%d" data-show-load-more="%s" data-aeg-version="%s"',
+				esc_attr( $wrap_classes ),
+				esc_attr( $post_type ),
+				esc_attr( $taxonomy ),
+				esc_attr( implode( ',', $term_ids ) ),
+				(int) $columns,
+				esc_attr( $show_filters ? '1' : '0' ),
+				esc_attr( $show_search ? '1' : '0' ),
+				(int) $per_page,
+				esc_attr( $show_load_more ? '1' : '0' ),
+				esc_attr( AEG_VERSION )
+			);
+
 		ob_start();
 		?>
 		<?php if ( $show_breadcrumb ) : self::render_breadcrumb_html(); endif; ?>
-		<div
-			class="<?php echo esc_attr( $wrap_classes ); ?>"
-			id="<?php echo esc_attr( $controls_id ); ?>"
-			data-post-type="<?php echo esc_attr( $post_type ); ?>"
-			data-taxonomy="<?php echo esc_attr( $taxonomy ); ?>"
-			data-term-ids="<?php echo esc_attr( implode( ',', $term_ids ) ); ?>"
-			data-columns="<?php echo esc_attr( $columns ); ?>"
-			data-show-filters="<?php echo esc_attr( $show_filters ? '1' : '0' ); ?>"
-			data-show-search="<?php echo esc_attr( $show_search ? '1' : '0' ); ?>"
-			data-per-page="<?php echo esc_attr( $per_page ); ?>"
-			data-show-load-more="<?php echo esc_attr( $show_load_more ? '1' : '0' ); ?>"
-		>
+		<div <?php echo $wrapper_attrs; // phpcs:ignore WordPress.Security.EscapeOutput.OutputNotEscaped — pre-escaped above ?> id="<?php echo esc_attr( $controls_id ); ?>">
 			<?php if ( $heading || $eyebrow || $tagline ) : ?>
 				<header class="aeg-grid__hero">
 					<?php if ( $eyebrow ) : ?>
@@ -351,12 +406,14 @@ class AEG_Block_Registration {
 
 			<div class="aeg-grid__items" role="list" aria-live="polite">
 				<?php
-				// Server-side render the first page so search engines + no-JS users see real content.
+				// G7: Server-side render. If empty, show a real empty state — NOT permanent skeletons,
+				// because the JS doesn't auto-fetch when SSR already shipped content.
 				if ( ! empty( $initial['items'] ) ) {
-					echo self::render_items_html( $initial['items'], $post_type ); // phpcs:ignore WordPress.Security.EscapeOutput.OutputNotEscaped
+					echo self::render_items_html( $initial['items'], $post_type, $columns ); // phpcs:ignore WordPress.Security.EscapeOutput.OutputNotEscaped
 				} else {
-					// No items yet — show skeletons so the JS hydrate doesn't paint over content.
-					echo self::render_skeleton( $per_page, $columns ); // phpcs:ignore WordPress.Security.EscapeOutput.OutputNotEscaped
+					?>
+					<p class="aeg-grid__empty"><?php esc_html_e( 'No items found.', 'aladdin-evergreen-grid' ); ?></p>
+					<?php
 				}
 				?>
 			</div>
@@ -381,7 +438,8 @@ class AEG_Block_Registration {
 		if ( $emit_item_list && ! empty( $initial['items'] ) ) {
 			echo self::render_itemlist_jsonld( $initial['items'], $heading ); // phpcs:ignore WordPress.Security.EscapeOutput.OutputNotEscaped
 		}
-		if ( $show_breadcrumb ) {
+		// C-L3: Skip BreadcrumbList JSON-LD when Rank Math or Yoast is active — they already emit one.
+		if ( $show_breadcrumb && ! self::seo_plugin_handles_breadcrumb() ) {
 			echo self::render_breadcrumb_jsonld(); // phpcs:ignore WordPress.Security.EscapeOutput.OutputNotEscaped
 		}
 		return ob_get_clean();
@@ -457,7 +515,10 @@ class AEG_Block_Registration {
 			),
 		);
 
-		return '<script type="application/ld+json">' . wp_json_encode( $data, JSON_UNESCAPED_SLASHES | JSON_UNESCAPED_UNICODE ) . '</script>';
+		// G2: JSON_HEX_* flags escape </script>, ampersands, quotes — prevents JSON-LD breakout.
+		return '<script type="application/ld+json">'
+			. wp_json_encode( $data, JSON_UNESCAPED_SLASHES | JSON_UNESCAPED_UNICODE | JSON_HEX_TAG | JSON_HEX_AMP | JSON_HEX_APOS | JSON_HEX_QUOT )
+			. '</script>';
 	}
 
 	/**
@@ -492,15 +553,31 @@ class AEG_Block_Registration {
 			return '';
 		}
 
+		// C-L1: Fall back to raw post_title to bypass our own the_title filter that returns ''.
+		global $post;
+		$fallback_name = $heading;
+		if ( ! $fallback_name && is_singular() && $post instanceof WP_Post ) {
+			$fallback_name = wp_strip_all_tags( $post->post_title );
+		}
+		if ( ! $fallback_name && is_archive() ) {
+			$fallback_name = post_type_archive_title( '', false );
+		}
+		if ( ! $fallback_name ) {
+			$fallback_name = __( 'Items', 'aladdin-evergreen-grid' );
+		}
+
 		$data = array(
 			'@context'        => 'https://schema.org',
 			'@type'           => 'ItemList',
-			'name'            => $heading ?: ( is_singular() ? get_the_title() : __( 'Items', 'aladdin-evergreen-grid' ) ),
+			'name'            => $fallback_name,
 			'numberOfItems'   => count( $elements ),
 			'itemListElement' => $elements,
 		);
 
-		return '<script type="application/ld+json">' . wp_json_encode( $data, JSON_UNESCAPED_SLASHES | JSON_UNESCAPED_UNICODE ) . '</script>';
+		// G2: hardened encoding for ItemList JSON-LD.
+		return '<script type="application/ld+json">'
+			. wp_json_encode( $data, JSON_UNESCAPED_SLASHES | JSON_UNESCAPED_UNICODE | JSON_HEX_TAG | JSON_HEX_AMP | JSON_HEX_APOS | JSON_HEX_QUOT )
+			. '</script>';
 	}
 
 	/**
@@ -521,6 +598,20 @@ class AEG_Block_Registration {
 				'items'    => array(),
 				'has_more' => false,
 			);
+		}
+
+		// G18: Validate taxonomy is allowed for this post type before querying.
+		if ( $taxonomy ) {
+			$allowed_tax = AEG_REST_Endpoint::get_allowed_taxonomies_for( $post_type );
+			if ( ! in_array( $taxonomy, $allowed_tax, true ) ) {
+				$taxonomy = '';
+				$term_ids = array();
+			}
+		}
+
+		// G21: Cap term_ids in SSR same as REST.
+		if ( count( $term_ids ) > 100 ) {
+			$term_ids = array_slice( $term_ids, 0, 100 );
 		}
 
 		$params = array(
@@ -562,16 +653,36 @@ class AEG_Block_Registration {
 	 * @param string $post_type Post type slug.
 	 * @return string
 	 */
-	protected static function render_items_html( $items, $post_type ) {
+	protected static function render_items_html( $items, $post_type, $columns = 3 ) {
 		$html = '';
 		$idx  = 0;
 		foreach ( $items as $item ) {
 			$idx++;
 			// First two cards eager-load to help LCP. Rest stay lazy.
 			$eager = ( $idx <= 2 );
-			$html .= self::render_single_card_html( $item, $post_type, $eager );
+			$html .= self::render_single_card_html( $item, $post_type, $eager, $columns );
 		}
 		return $html;
+	}
+
+	/**
+	 * Compute responsive sizes attribute from column count.
+	 *
+	 * @param int $columns Column count.
+	 * @return string
+	 */
+	protected static function sizes_for_columns( $columns ) {
+		switch ( max( 1, min( 4, (int) $columns ) ) ) {
+			case 1:
+				return '(max-width: 640px) 100vw, 100vw';
+			case 2:
+				return '(max-width: 640px) 100vw, 50vw';
+			case 4:
+				return '(max-width: 640px) 100vw, (max-width: 1024px) 50vw, 25vw';
+			case 3:
+			default:
+				return '(max-width: 640px) 100vw, (max-width: 1024px) 50vw, 33vw';
+		}
 	}
 
 	/**
@@ -582,8 +693,9 @@ class AEG_Block_Registration {
 	 * @param bool   $eager     Whether to eager-load the image (above-fold optimization).
 	 * @return string
 	 */
-	protected static function render_single_card_html( $item, $post_type, $eager = false ) {
-		$image_html = self::render_card_image_html( $item, $eager );
+	protected static function render_single_card_html( $item, $post_type, $eager = false, $columns = 3 ) {
+		$cta_label  = self::get_cta_label( $post_type ); // G9: per-post-type CTA
+		$image_html = self::render_card_image_html( $item, $eager, $columns, $cta_label );
 		$meta_html  = self::render_meta_html( $post_type, $item['meta'] );
 
 		return sprintf(
@@ -594,6 +706,40 @@ class AEG_Block_Registration {
 			$item['excerpt'] ? '<p class="aeg-card__excerpt">' . esc_html( $item['excerpt'] ) . '</p>' : '',
 			$meta_html // phpcs:ignore WordPress.Security.EscapeOutput.OutputNotEscaped — built from escaped fragments
 		);
+	}
+
+	/**
+	 * C-L3: Detect Rank Math / Yoast handling site-wide breadcrumb schema.
+	 *
+	 * @return bool
+	 */
+	protected static function seo_plugin_handles_breadcrumb() {
+		$handles = defined( 'RANK_MATH_VERSION' ) || class_exists( 'RankMath\\Helper' )
+			|| defined( 'WPSEO_VERSION' ) || class_exists( 'Yoast\\WP\\SEO\\Main' );
+		/**
+		 * Filter whether an SEO plugin is handling breadcrumb schema (so we should skip ours).
+		 *
+		 * @param bool $handles True if Rank Math / Yoast detected.
+		 */
+		return apply_filters( 'aeg_seo_plugin_handles_breadcrumb', $handles );
+	}
+
+	/**
+	 * G9: Per-post-type CTA label so the hover overlay says the right thing.
+	 *
+	 * @param string $post_type Post type slug.
+	 * @return string
+	 */
+	protected static function get_cta_label( $post_type ) {
+		$map = array(
+			'wprm_recipe' => __( 'View Recipe →', 'aladdin-evergreen-grid' ),
+			'product'     => __( 'View Product →', 'aladdin-evergreen-grid' ),
+			'post'        => __( 'Read More →', 'aladdin-evergreen-grid' ),
+			'page'        => __( 'View Page →', 'aladdin-evergreen-grid' ),
+			'event'       => __( 'View Event →', 'aladdin-evergreen-grid' ),
+		);
+		$label = isset( $map[ $post_type ] ) ? $map[ $post_type ] : __( 'View →', 'aladdin-evergreen-grid' );
+		return apply_filters( 'aeg_cta_label', $label, $post_type );
 	}
 
 	/**
@@ -612,8 +758,11 @@ class AEG_Block_Registration {
 		if ( preg_match( '/[A-Z]/u', $name ) ) {
 			return $name;
 		}
-		// Otherwise, title case each word but keep mb-aware.
-		return mb_convert_case( $name, MB_CASE_TITLE, 'UTF-8' );
+		// G16: Guard mb_convert_case — falls back to ucwords on hosts without mbstring.
+		if ( function_exists( 'mb_convert_case' ) ) {
+			return mb_convert_case( $name, MB_CASE_TITLE, 'UTF-8' );
+		}
+		return ucwords( $name );
 	}
 
 	/**
@@ -631,7 +780,7 @@ class AEG_Block_Registration {
 	 * @param bool  $eager Whether this card is above-the-fold.
 	 * @return string
 	 */
-	protected static function render_card_image_html( $item, $eager = false ) {
+	protected static function render_card_image_html( $item, $eager = false, $columns = 3, $cta_label = '' ) {
 		if ( empty( $item['thumbnail']['url'] ) ) {
 			return '';
 		}
@@ -646,27 +795,31 @@ class AEG_Block_Registration {
 				'loading'       => $eager ? 'eager' : 'lazy',
 				'decoding'      => 'async',
 				'data-no-lazy'  => '1',
-				'sizes'         => '(max-width: 640px) 100vw, (max-width: 1024px) 50vw, 33vw',
+				'sizes'         => self::sizes_for_columns( $columns ), // G11: per-column responsive sizes
 			);
 			if ( $eager ) {
 				$attrs['fetchpriority'] = 'high';
 			}
 			$image_tag = wp_get_attachment_image( $attachment_id, 'medium_large', false, $attrs );
 			if ( $image_tag ) {
-				return '<div class="aeg-card__image">' . $image_tag . '</div>';
+				// G9: per-post-type CTA label rendered inside the overlay span.
+				$overlay = '<span class="aeg-card__overlay" aria-hidden="true">' . esc_html( $cta_label ) . '</span>';
+				return '<div class="aeg-card__image">' . $image_tag . $overlay . '</div>';
 			}
 		}
 
 		// Fallback — manually built tag (still excluded from lazy loaders).
+		$overlay = '<span class="aeg-card__overlay" aria-hidden="true">' . esc_html( $cta_label ) . '</span>';
 		return sprintf(
-			'<div class="aeg-card__image"><img src="%1$s" alt="%2$s" class="%3$s" loading="%4$s" decoding="async" data-no-lazy="1"%5$s width="%6$d" height="%7$d" /></div>',
+			'<div class="aeg-card__image"><img src="%1$s" alt="%2$s" class="%3$s" loading="%4$s" decoding="async" data-no-lazy="1"%5$s width="%6$d" height="%7$d" />%8$s</div>',
 			esc_url( $item['thumbnail']['url'] ),
 			esc_attr( $item['thumbnail']['alt'] ?: $item['title'] ),
 			esc_attr( $lazy_classes ),
 			$eager ? 'eager' : 'lazy',
 			$eager ? ' fetchpriority="high"' : '',
 			(int) ( $item['thumbnail']['w'] ?: 800 ),
-			(int) ( $item['thumbnail']['h'] ?: 600 )
+			(int) ( $item['thumbnail']['h'] ?: 600 ),
+			$overlay // phpcs:ignore WordPress.Security.EscapeOutput.OutputNotEscaped
 		);
 	}
 
@@ -699,7 +852,8 @@ class AEG_Block_Registration {
 			if ( ! empty( $meta['time'] ) ) {
 				$parts[] = '<span class="aeg-card__time">' . esc_html( $meta['time'] ) . '</span>';
 			}
-			if ( ! empty( $meta['rating'] ) ) {
+			// G15: Hide rating <= 0 so PHP + JS agree (was inconsistent in v0.5).
+			if ( isset( $meta['rating'] ) && (float) $meta['rating'] > 0 ) {
 				$parts[] = '<span class="aeg-card__rating">★ ' . esc_html( number_format_i18n( (float) $meta['rating'], 1 ) ) . '</span>';
 			}
 			if ( ! empty( $meta['diet'] ) && is_array( $meta['diet'] ) ) {

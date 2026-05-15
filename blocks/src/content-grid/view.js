@@ -25,6 +25,16 @@ const STRINGS = Object.assign(
 	CONFIG.i18n || {}
 );
 
+// G9: per-post-type CTA labels for JS-rendered cards.
+const CTA_LABELS = {
+	wprm_recipe: 'View Recipe →',
+	product:     'View Product →',
+	post:        'Read More →',
+	page:        'View Page →',
+	event:       'View Event →',
+};
+const ctaLabel = ( postType ) => CTA_LABELS[ postType ] || 'View →';
+
 // Whitelist of URL schemes safe to put in href/src.
 const SAFE_SCHEMES = /^(https?:|mailto:|tel:|\/|#)/i;
 const safeUrl = ( url ) => {
@@ -65,8 +75,10 @@ const renderSkeleton = ( count ) => {
 const renderRecipeMeta = ( meta ) => {
 	const parts = [];
 	if ( meta?.time ) parts.push( `<span class="aeg-card__time">${ escapeHtml( meta.time ) }</span>` );
-	// 0-rating is rendered intentionally — visible "not yet rated" state.
-	if ( meta?.rating != null ) parts.push( `<span class="aeg-card__rating">★ ${ Number( meta.rating ).toFixed( 1 ) }</span>` );
+	// G15: Match PHP — only show rating when > 0 (no "★ 0.0" cards).
+	if ( meta?.rating && Number( meta.rating ) > 0 ) {
+		parts.push( `<span class="aeg-card__rating">★ ${ Number( meta.rating ).toFixed( 1 ) }</span>` );
+	}
 	if ( Array.isArray( meta?.diet ) && meta.diet.length ) {
 		parts.push( `<span class="aeg-card__diet">${ escapeHtml( meta.diet[ 0 ] ) }</span>` );
 	}
@@ -97,8 +109,10 @@ const renderCard = ( item, postType, eager = false ) => {
 	const priority = eager ? ' fetchpriority="high"' : '';
 
 	// Lazy-loader exclusion classes match the SSR side (EWWW, Perfmatters).
+	// G9: include per-post-type CTA overlay inside the image wrapper.
+	const overlay = `<span class="aeg-card__overlay" aria-hidden="true">${ escapeHtml( ctaLabel( postType ) ) }</span>`;
 	const img = url
-		? `<div class="aeg-card__image"><img src="${ escapeHtml( url ) }" alt="${ escapeHtml( item.thumbnail?.alt || item.title || '' ) }" class="skip-lazy no-lazy aeg-card__img" data-no-lazy="1" loading="${ loading }" decoding="async"${ priority } width="${ w }" height="${ h }" /></div>`
+		? `<div class="aeg-card__image"><img src="${ escapeHtml( url ) }" alt="${ escapeHtml( item.thumbnail?.alt || item.title || '' ) }" class="skip-lazy no-lazy aeg-card__img" data-no-lazy="1" loading="${ loading }" decoding="async"${ priority } width="${ w }" height="${ h }" />${ overlay }</div>`
 		: '';
 	const meta = renderMeta( postType, item.meta );
 

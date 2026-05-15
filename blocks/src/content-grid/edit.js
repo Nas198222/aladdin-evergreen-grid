@@ -49,6 +49,9 @@ export default function Edit( { attributes, setAttributes } ) {
 		showBreadcrumb,
 		stickyControls,
 		emitItemList,
+		eyebrow,
+		tagline,
+		featuredFirst,
 	} = attributes;
 
 	const [ postTypes, setPostTypes ] = useState( [] );
@@ -192,9 +195,21 @@ export default function Edit( { attributes, setAttributes } ) {
 
 				<PanelBody title={ __( 'Layout', 'aladdin-evergreen-grid' ) } initialOpen={ false }>
 					<TextControl
+						label={ __( 'Eyebrow (small caps line above heading)', 'aladdin-evergreen-grid' ) }
+						value={ eyebrow }
+						onChange={ ( value ) => setAttributes( { eyebrow: value } ) }
+						placeholder={ __( 'e.g. From the Aladdin Kitchen', 'aladdin-evergreen-grid' ) }
+					/>
+					<TextControl
 						label={ __( 'Heading (optional)', 'aladdin-evergreen-grid' ) }
 						value={ heading }
 						onChange={ ( value ) => setAttributes( { heading: value } ) }
+					/>
+					<TextControl
+						label={ __( 'Tagline (description below heading)', 'aladdin-evergreen-grid' ) }
+						value={ tagline }
+						onChange={ ( value ) => setAttributes( { tagline: value } ) }
+						placeholder={ __( 'Short paragraph that introduces the grid.', 'aladdin-evergreen-grid' ) }
 					/>
 					<RangeControl
 						label={ __( 'Columns', 'aladdin-evergreen-grid' ) }
@@ -209,6 +224,12 @@ export default function Edit( { attributes, setAttributes } ) {
 						min={ 1 }
 						max={ 50 }
 						onChange={ ( value ) => setAttributes( { perPage: value } ) }
+					/>
+					<ToggleControl
+						label={ __( 'Featured first card (2-col magazine layout on desktop)', 'aladdin-evergreen-grid' ) }
+						help={ __( 'First card spans 2 columns when columns is 3 or 4.', 'aladdin-evergreen-grid' ) }
+						checked={ featuredFirst }
+						onChange={ ( v ) => setAttributes( { featuredFirst: v } ) }
 					/>
 				</PanelBody>
 

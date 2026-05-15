@@ -299,6 +299,12 @@ class AEG_Helpers {
 			'no_found_rows'          => ! $needs_total,
 			'update_post_term_cache' => true,
 			'update_post_meta_cache' => true,
+			'has_password'           => false,                              // Exclude password-protected posts
+			'meta_query'             => array(                              // phpcs:ignore WordPress.DB.SlowDBQuery
+				'relation' => 'OR',
+				array( 'key' => '_yoast_wpseo_meta-robots-noindex', 'compare' => 'NOT EXISTS' ),
+				array( 'key' => '_yoast_wpseo_meta-robots-noindex', 'value' => '1', 'compare' => '!=' ),
+			),
 		);
 
 		if ( ! empty( $params['search'] ) ) {
