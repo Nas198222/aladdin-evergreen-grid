@@ -140,7 +140,9 @@ class AEG_REST_Endpoint {
 		$allowed    = array();
 
 		foreach ( $taxonomies as $tax ) {
-			if ( $tax->public && $tax->show_in_rest ) {
+			// WPRM registers wprm_course / wprm_cuisine / wprm_diet as public=true but show_in_rest=false.
+			// Treat any public taxonomy on an allow-listed post type as allowed so the block can filter recipes.
+			if ( $tax->public || $tax->show_in_rest ) {
 				$allowed[] = $tax->name;
 			}
 		}
@@ -304,6 +306,7 @@ class AEG_REST_Endpoint {
 		if ( false !== $cached ) {
 			$response = rest_ensure_response( $cached );
 			$response->header( 'X-AEG-Cache', 'HIT' );
+			self::add_public_cache_headers( $response );
 			return $response;
 		}
 
@@ -335,8 +338,27 @@ class AEG_REST_Endpoint {
 
 		$response = rest_ensure_response( $payload );
 		$response->header( 'X-AEG-Cache', 'MISS' );
+		self::add_public_cache_headers( $response );
 
 		return $response;
+	}
+
+	/**
+	 * Send edge-friendly cache headers for anonymous GETs.
+	 * Public CDN cache + short browser cache + stale-while-revalidate.
+	 *
+	 * @param WP_REST_Response $response Response.
+	 * @return void
+	 */
+	protected static function add_public_cache_headers( $response ) {
+		if ( is_user_logged_in() ) {
+			return; // Logged-in users get the WP default no-store.
+		}
+		$response->header(
+			'Cache-Control',
+			sprintf( 'public, max-age=60, s-maxage=%d, stale-while-revalidate=120', self::CACHE_TTL ),
+			true
+		);
 	}
 
 	/**

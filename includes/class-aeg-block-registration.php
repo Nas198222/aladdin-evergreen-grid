@@ -26,6 +26,31 @@ class AEG_Block_Registration {
 		// Defer localization until WP knows whether the block is on the page.
 		add_action( 'wp_enqueue_scripts', array( __CLASS__, 'localize_frontend' ), 20 );
 		add_action( 'enqueue_block_editor_assets', array( __CLASS__, 'localize_editor' ) );
+		// Hide duplicate page-title H1 when the block is on the page (theme-agnostic).
+		add_filter( 'the_title', array( __CLASS__, 'maybe_hide_page_title' ), 999, 2 );
+	}
+
+	/**
+	 * Suppress the theme's title rendering on pages where our block already provides one.
+	 * Only affects the main page title — not nav menus, recent posts, etc.
+	 *
+	 * @param string $title Page title.
+	 * @param int    $id    Post ID.
+	 * @return string
+	 */
+	public static function maybe_hide_page_title( $title, $id = 0 ) {
+		if ( ! is_singular() || ! in_the_loop() || ! is_main_query() ) {
+			return $title;
+		}
+		global $post;
+		if ( ! $post || (int) $id !== (int) $post->ID ) {
+			return $title;
+		}
+		if ( has_block( self::BLOCK_NAME, $post ) ) {
+			// Wrap so themes that escape this still drop it. Empty string = no title rendered.
+			return '';
+		}
+		return $title;
 	}
 
 	/**
@@ -248,12 +273,12 @@ class AEG_Block_Registration {
 
 					<?php if ( $show_filters && $taxonomy && taxonomy_exists( $taxonomy ) ) : ?>
 						<div class="aeg-grid__filters" role="group" aria-label="<?php esc_attr_e( 'Filter items', 'aladdin-evergreen-grid' ); ?>">
-							<button class="aeg-grid__filter aeg-grid__filter--active" type="button" data-term-id="">
+							<button class="aeg-grid__filter aeg-grid__filter--active" type="button" data-term-id="" aria-pressed="true">
 								<?php esc_html_e( 'All', 'aladdin-evergreen-grid' ); ?>
 							</button>
 							<?php foreach ( self::get_filter_terms( $taxonomy, $term_ids ) as $term ) : ?>
-								<button class="aeg-grid__filter" type="button" data-term-id="<?php echo (int) $term->term_id; ?>">
-									<?php echo esc_html( $term->name ); ?>
+								<button class="aeg-grid__filter" type="button" data-term-id="<?php echo (int) $term->term_id; ?>" aria-pressed="false">
+									<?php echo esc_html( self::title_case_term( $term->name ) ); ?>
 								</button>
 							<?php endforeach; ?>
 						</div>
@@ -261,7 +286,7 @@ class AEG_Block_Registration {
 				</div>
 			<?php endif; ?>
 
-			<div class="aeg-grid__items" aria-live="polite">
+			<div class="aeg-grid__items" role="list" aria-live="polite">
 				<?php
 				// Server-side render the first page so search engines + no-JS users see real content.
 				$initial = self::get_initial_items( $post_type, $taxonomy, $term_ids, $per_page );
@@ -373,29 +398,106 @@ class AEG_Block_Registration {
 	 * @return string
 	 */
 	protected static function render_single_card_html( $item, $post_type, $eager = false ) {
-		$image_html = '';
-		if ( ! empty( $item['thumbnail']['url'] ) ) {
-			$image_html = sprintf(
-				'<div class="aeg-card__image"><img src="%1$s" alt="%2$s" loading="%3$s" %4$s width="%5$d" height="%6$d" /></div>',
-				esc_url( $item['thumbnail']['url'] ),
-				esc_attr( $item['thumbnail']['alt'] ?: $item['title'] ),
-				$eager ? 'eager' : 'lazy',
-				$eager ? 'fetchpriority="high"' : '',
-				(int) ( $item['thumbnail']['w'] ?: 800 ),
-				(int) ( $item['thumbnail']['h'] ?: 600 )
-			);
-		}
-
-		$meta_html = self::render_meta_html( $post_type, $item['meta'] );
+		$image_html = self::render_card_image_html( $item, $eager );
+		$meta_html  = self::render_meta_html( $post_type, $item['meta'] );
 
 		return sprintf(
-			'<a class="aeg-card" href="%1$s">%2$s<div class="aeg-card__body"><h3 class="aeg-card__title">%3$s</h3>%4$s%5$s</div></a>',
+			'<article class="aeg-card-wrap" role="listitem"><a class="aeg-card" href="%1$s">%2$s<div class="aeg-card__body"><h3 class="aeg-card__title">%3$s</h3>%4$s%5$s</div></a></article>',
 			esc_url( $item['link'] ),
 			$image_html, // phpcs:ignore WordPress.Security.EscapeOutput.OutputNotEscaped — built from escaped fragments
 			esc_html( $item['title'] ),
 			$item['excerpt'] ? '<p class="aeg-card__excerpt">' . esc_html( $item['excerpt'] ) . '</p>' : '',
 			$meta_html // phpcs:ignore WordPress.Security.EscapeOutput.OutputNotEscaped — built from escaped fragments
 		);
+	}
+
+	/**
+	 * Title-case a taxonomy term name (e.g. "light meal" -> "Light Meal").
+	 * Preserves words already containing uppercase + leaves accented chars alone.
+	 *
+	 * @param string $name Raw term name.
+	 * @return string
+	 */
+	protected static function title_case_term( $name ) {
+		$name = trim( wp_strip_all_tags( $name ) );
+		if ( '' === $name ) {
+			return $name;
+		}
+		// If it already has uppercase, trust the editor's casing.
+		if ( preg_match( '/[A-Z]/u', $name ) ) {
+			return $name;
+		}
+		// Otherwise, title case each word but keep mb-aware.
+		return mb_convert_case( $name, MB_CASE_TITLE, 'UTF-8' );
+	}
+
+	/**
+	 * Render the card thumbnail with srcset/sizes + lazy-loader exclusions.
+	 *
+	 * Adds:
+	 *   - `skip-lazy` class (EWWW respects it)
+	 *   - `no-lazy` class (Perfmatters respects it)
+	 *   - `data-no-lazy="1"` (defensive)
+	 *   - Native `loading="eager"` + `fetchpriority="high"` on first 2 cards only
+	 *   - Real `src` (never a placeholder transparent gif)
+	 *   - `srcset`/`sizes` via wp_get_attachment_image()
+	 *
+	 * @param array $item  Item payload.
+	 * @param bool  $eager Whether this card is above-the-fold.
+	 * @return string
+	 */
+	protected static function render_card_image_html( $item, $eager = false ) {
+		if ( empty( $item['thumbnail']['url'] ) ) {
+			return '';
+		}
+
+		// Try to render via WP API so we get real srcset + alt + dimensions.
+		$attachment_id = self::resolve_attachment_id( $item );
+		$lazy_classes  = 'skip-lazy no-lazy aeg-card__img';
+
+		if ( $attachment_id ) {
+			$attrs = array(
+				'class'         => $lazy_classes,
+				'loading'       => $eager ? 'eager' : 'lazy',
+				'decoding'      => 'async',
+				'data-no-lazy'  => '1',
+				'sizes'         => '(max-width: 640px) 100vw, (max-width: 1024px) 50vw, 33vw',
+			);
+			if ( $eager ) {
+				$attrs['fetchpriority'] = 'high';
+			}
+			$image_tag = wp_get_attachment_image( $attachment_id, 'medium_large', false, $attrs );
+			if ( $image_tag ) {
+				return '<div class="aeg-card__image">' . $image_tag . '</div>';
+			}
+		}
+
+		// Fallback — manually built tag (still excluded from lazy loaders).
+		return sprintf(
+			'<div class="aeg-card__image"><img src="%1$s" alt="%2$s" class="%3$s" loading="%4$s" decoding="async" data-no-lazy="1"%5$s width="%6$d" height="%7$d" /></div>',
+			esc_url( $item['thumbnail']['url'] ),
+			esc_attr( $item['thumbnail']['alt'] ?: $item['title'] ),
+			esc_attr( $lazy_classes ),
+			$eager ? 'eager' : 'lazy',
+			$eager ? ' fetchpriority="high"' : '',
+			(int) ( $item['thumbnail']['w'] ?: 800 ),
+			(int) ( $item['thumbnail']['h'] ?: 600 )
+		);
+	}
+
+	/**
+	 * Look up the attachment ID for an item's thumbnail by URL.
+	 * Returns 0 when not findable (still safe — fallback path handles it).
+	 *
+	 * @param array $item Formatted item with at least ['id'].
+	 * @return int
+	 */
+	protected static function resolve_attachment_id( $item ) {
+		if ( empty( $item['id'] ) ) {
+			return 0;
+		}
+		$thumb_id = get_post_thumbnail_id( $item['id'] );
+		return $thumb_id ? (int) $thumb_id : 0;
 	}
 
 	/**

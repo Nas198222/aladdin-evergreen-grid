@@ -96,19 +96,20 @@ const renderCard = ( item, postType, eager = false ) => {
 	const loading = eager ? 'eager' : 'lazy';
 	const priority = eager ? ' fetchpriority="high"' : '';
 
+	// Lazy-loader exclusion classes match the SSR side (EWWW, Perfmatters).
 	const img = url
-		? `<div class="aeg-card__image"><img src="${ escapeHtml( url ) }" alt="${ escapeHtml( item.thumbnail?.alt || item.title || '' ) }" loading="${ loading }"${ priority } width="${ w }" height="${ h }" /></div>`
+		? `<div class="aeg-card__image"><img src="${ escapeHtml( url ) }" alt="${ escapeHtml( item.thumbnail?.alt || item.title || '' ) }" class="skip-lazy no-lazy aeg-card__img" data-no-lazy="1" loading="${ loading }" decoding="async"${ priority } width="${ w }" height="${ h }" /></div>`
 		: '';
 	const meta = renderMeta( postType, item.meta );
 
-	return `<a class="aeg-card" href="${ escapeHtml( link ) }">
+	return `<article class="aeg-card-wrap" role="listitem"><a class="aeg-card" href="${ escapeHtml( link ) }">
 		${ img }
 		<div class="aeg-card__body">
 			<h3 class="aeg-card__title">${ escapeHtml( item.title ) }</h3>
 			${ item.excerpt ? `<p class="aeg-card__excerpt">${ escapeHtml( item.excerpt ) }</p>` : '' }
 			${ meta ? `<div class="aeg-card__meta-row">${ meta }</div>` : '' }
 		</div>
-	</a>`;
+	</a></article>`;
 };
 
 const renderError = ( msg ) =>

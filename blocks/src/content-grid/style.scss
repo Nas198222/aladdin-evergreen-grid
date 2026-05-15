@@ -206,6 +206,11 @@
 	}
 }
 
+/* Article wrapper provides semantics (role=listitem) but stays out of the way of layout. */
+.aeg-card-wrap {
+	display: contents;
+}
+
 .aeg-card {
 	display: flex;
 	flex-direction: column;

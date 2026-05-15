@@ -91,6 +91,33 @@ class AEG_Helpers {
 	}
 
 	/**
+	 * Plain-text cleanup for titles + excerpts. Strips HTML, decodes entities,
+	 * collapses whitespace. Single source of truth for both SSR and REST.
+	 *
+	 * @param string $text Raw text (possibly HTML-encoded).
+	 * @return string Decoded, tag-free, single-line text.
+	 */
+	public static function clean_text( $text ) {
+		$text = wp_strip_all_tags( (string) $text );
+		$text = html_entity_decode( $text, ENT_QUOTES | ENT_HTML5, 'UTF-8' );
+		$text = preg_replace( '/\s+/u', ' ', $text );
+		return trim( $text );
+	}
+
+	/**
+	 * Card excerpt — always plain text, no inner links, capped at 24 words.
+	 * Used by both SSR and REST so they always agree.
+	 *
+	 * @param WP_Post $post Post.
+	 * @return string
+	 */
+	public static function format_excerpt( WP_Post $post ) {
+		$raw = $post->post_excerpt ?: wp_trim_words( $post->post_content, 60, '…' );
+		$clean = self::clean_text( $raw );
+		return wp_trim_words( $clean, 24, '…' );
+	}
+
+	/**
 	 * Sanitize a CSV string or array of term IDs into a unique list of positive ints.
 	 *
 	 * @param mixed $term_ids Raw input (CSV string, array, or scalar).
@@ -174,10 +201,10 @@ class AEG_Helpers {
 
 		$item = array(
 			'id'        => (int) $post->ID,
-			'title'     => wp_strip_all_tags( get_the_title( $post ) ),
+			'title'     => self::clean_text( get_the_title( $post ) ),
 			'link'      => esc_url_raw( get_permalink( $post ) ),
 			'thumbnail' => $thumbnail,
-			'excerpt'   => wp_trim_words( wp_strip_all_tags( get_the_excerpt( $post ) ), 24, '…' ),
+			'excerpt'   => self::format_excerpt( $post ),
 			'meta'      => self::get_item_meta( $post->ID, $post_type ),
 		);
 
@@ -276,6 +303,9 @@ class AEG_Helpers {
 
 		if ( ! empty( $params['search'] ) ) {
 			$args['s'] = $params['search'];
+			// When user is searching, prefer relevance — title hits before content hits.
+			// WP_Query's built-in "relevance" requires a 4.3+ flag we set via filter below.
+			$args['orderby'] = 'relevance';
 		}
 
 		if ( ! empty( $params['taxonomy'] ) && ! empty( $params['term_ids'] ) ) {
