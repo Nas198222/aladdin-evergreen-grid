@@ -1,6 +1,6 @@
 {
   "$schema": "https://playground.wordpress.net/blueprint-schema.json",
-  "landingPage": "/?p=evergreen-demo",
+  "landingPage": "/evergreen-demo/",
   "preferredVersions": {
     "php": "8.2",
     "wp": "latest"
