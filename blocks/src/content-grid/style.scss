@@ -49,6 +49,34 @@
 		color: var(--aeg-text);
 	}
 
+	&__breadcrumb {
+		font-size: 13px;
+		color: var(--aeg-muted);
+		margin: 0 0 16px;
+		letter-spacing: 0.3px;
+
+		a {
+			color: var(--aeg-text);
+			text-decoration: none;
+			transition: color 0.15s;
+
+			&:hover,
+			&:focus-visible {
+				color: var(--aeg-orange);
+			}
+		}
+
+		[aria-current="page"] {
+			color: var(--aeg-text);
+			font-weight: 600;
+		}
+
+		&-sep {
+			margin: 0 8px;
+			color: var(--aeg-border);
+		}
+	}
+
 	&__controls {
 		display: flex;
 		flex-wrap: wrap;
@@ -56,6 +84,31 @@
 		justify-content: space-between;
 		align-items: center;
 		margin-bottom: 32px;
+		background: var(--aeg-white);
+	}
+
+	/* Sticky controls on mobile so search + filters stay reachable as user scrolls. */
+	&--sticky .aeg-grid__controls {
+		position: sticky;
+		top: 0;
+		z-index: 5;
+		padding: 12px 0;
+		margin-left: -16px;
+		margin-right: -16px;
+		padding-left: 16px;
+		padding-right: 16px;
+		box-shadow: 0 6px 12px -10px rgba(0, 0, 0, 0.18);
+	}
+
+	/* On desktop the sticky bar feels cramped; revert to normal positioning above 900px. */
+	@media (min-width: 900px) {
+		&--sticky .aeg-grid__controls {
+			position: static;
+			padding: 0;
+			margin-left: 0;
+			margin-right: 0;
+			box-shadow: none;
+		}
 	}
 
 	&__search {

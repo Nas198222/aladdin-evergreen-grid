@@ -201,6 +201,18 @@ class AEG_Block_Registration {
 				'type'    => 'boolean',
 				'default' => true,
 			),
+			'showBreadcrumb' => array(
+				'type'    => 'boolean',
+				'default' => true,
+			),
+			'stickyControls' => array(
+				'type'    => 'boolean',
+				'default' => true,
+			),
+			'emitItemList' => array(
+				'type'    => 'boolean',
+				'default' => true,
+			),
 		);
 	}
 
@@ -214,34 +226,49 @@ class AEG_Block_Registration {
 		$attributes = wp_parse_args(
 			$attributes,
 			array(
-				'postType'     => 'wprm_recipe',
-				'taxonomy'     => '',
-				'termIds'      => array(),
-				'columns'      => 3,
-				'showFilters'  => true,
-				'showSearch'   => true,
-				'perPage'      => 12,
-				'heading'      => '',
-				'showLoadMore' => true,
+				'postType'       => 'wprm_recipe',
+				'taxonomy'       => '',
+				'termIds'        => array(),
+				'columns'        => 3,
+				'showFilters'    => true,
+				'showSearch'     => true,
+				'perPage'        => 12,
+				'heading'        => '',
+				'showLoadMore'   => true,
+				'showBreadcrumb' => true,
+				'stickyControls' => true,
+				'emitItemList'   => true,
 			)
 		);
 
-		$post_type     = sanitize_key( $attributes['postType'] );
-		$taxonomy      = sanitize_key( $attributes['taxonomy'] );
-		$term_ids      = AEG_Helpers::sanitize_term_ids( $attributes['termIds'] );
-		$columns       = min( 4, max( 1, absint( $attributes['columns'] ) ) );
-		$show_filters  = (bool) $attributes['showFilters'];
-		$show_search   = (bool) $attributes['showSearch'];
-		$per_page      = min( 50, max( 1, absint( $attributes['perPage'] ) ) );
-		$heading       = sanitize_text_field( $attributes['heading'] );
-		$show_load_more = (bool) $attributes['showLoadMore'];
+		$post_type       = sanitize_key( $attributes['postType'] );
+		$taxonomy        = sanitize_key( $attributes['taxonomy'] );
+		$term_ids        = AEG_Helpers::sanitize_term_ids( $attributes['termIds'] );
+		$columns         = min( 4, max( 1, absint( $attributes['columns'] ) ) );
+		$show_filters    = (bool) $attributes['showFilters'];
+		$show_search     = (bool) $attributes['showSearch'];
+		$per_page        = min( 50, max( 1, absint( $attributes['perPage'] ) ) );
+		$heading         = sanitize_text_field( $attributes['heading'] );
+		$show_load_more  = (bool) $attributes['showLoadMore'];
+		$show_breadcrumb = (bool) $attributes['showBreadcrumb'];
+		$sticky_controls = (bool) $attributes['stickyControls'];
+		$emit_item_list  = (bool) $attributes['emitItemList'];
 
 		$controls_id = wp_unique_id( 'aeg-grid-' );
 
+		// Pre-compute the initial item set so we can render + reuse it for ItemList schema.
+		$initial = self::get_initial_items( $post_type, $taxonomy, $term_ids, $per_page );
+
+		$wrap_classes = 'aeg-grid aeg-grid--cols-' . (int) $columns;
+		if ( $sticky_controls ) {
+			$wrap_classes .= ' aeg-grid--sticky';
+		}
+
 		ob_start();
 		?>
+		<?php if ( $show_breadcrumb ) : self::render_breadcrumb_html(); endif; ?>
 		<div
-			class="aeg-grid aeg-grid--cols-<?php echo (int) $columns; ?>"
+			class="<?php echo esc_attr( $wrap_classes ); ?>"
 			id="<?php echo esc_attr( $controls_id ); ?>"
 			data-post-type="<?php echo esc_attr( $post_type ); ?>"
 			data-taxonomy="<?php echo esc_attr( $taxonomy ); ?>"
@@ -289,7 +316,6 @@ class AEG_Block_Registration {
 			<div class="aeg-grid__items" role="list" aria-live="polite">
 				<?php
 				// Server-side render the first page so search engines + no-JS users see real content.
-				$initial = self::get_initial_items( $post_type, $taxonomy, $term_ids, $per_page );
 				if ( ! empty( $initial['items'] ) ) {
 					echo self::render_items_html( $initial['items'], $post_type ); // phpcs:ignore WordPress.Security.EscapeOutput.OutputNotEscaped
 				} else {
@@ -315,7 +341,130 @@ class AEG_Block_Registration {
 			<?php endif; ?>
 		</div>
 		<?php
+		// ItemList + BreadcrumbList JSON-LD — boost archive eligibility for rich results.
+		if ( $emit_item_list && ! empty( $initial['items'] ) ) {
+			echo self::render_itemlist_jsonld( $initial['items'], $heading ); // phpcs:ignore WordPress.Security.EscapeOutput.OutputNotEscaped
+		}
+		if ( $show_breadcrumb ) {
+			echo self::render_breadcrumb_jsonld(); // phpcs:ignore WordPress.Security.EscapeOutput.OutputNotEscaped
+		}
 		return ob_get_clean();
+	}
+
+	/**
+	 * Visible breadcrumb trail: Home > Current page title.
+	 * Kept intentionally simple — for nested taxonomies, use a Yoast/Rank Math breadcrumb instead.
+	 *
+	 * @return void
+	 */
+	protected static function render_breadcrumb_html() {
+		global $post;
+		$home    = home_url( '/' );
+		$current = '';
+		if ( is_singular() && $post ) {
+			// Read directly from the post object to bypass our own the_title filter that
+			// suppresses the duplicate page title on block pages.
+			$current = wp_strip_all_tags( $post->post_title );
+		} elseif ( is_archive() ) {
+			$current = post_type_archive_title( '', false );
+		}
+		if ( ! $current ) {
+			return;
+		}
+		?>
+		<nav class="aeg-grid__breadcrumb" aria-label="<?php esc_attr_e( 'Breadcrumb', 'aladdin-evergreen-grid' ); ?>">
+			<a href="<?php echo esc_url( $home ); ?>"><?php esc_html_e( 'Home', 'aladdin-evergreen-grid' ); ?></a>
+			<span class="aeg-grid__breadcrumb-sep" aria-hidden="true">›</span>
+			<span aria-current="page"><?php echo esc_html( $current ); ?></span>
+		</nav>
+		<?php
+	}
+
+	/**
+	 * BreadcrumbList JSON-LD that mirrors the visible breadcrumb.
+	 *
+	 * @return string
+	 */
+	protected static function render_breadcrumb_jsonld() {
+		global $post;
+		$home          = home_url( '/' );
+		$current_url   = '';
+		$current_label = '';
+		if ( is_singular() && $post ) {
+			$current_url   = get_permalink( $post );
+			$current_label = wp_strip_all_tags( $post->post_title );
+		} elseif ( is_archive() ) {
+			$current_url   = get_post_type_archive_link( get_post_type() );
+			$current_label = post_type_archive_title( '', false );
+		}
+
+		if ( ! $current_url || ! $current_label ) {
+			return '';
+		}
+
+		$data = array(
+			'@context'        => 'https://schema.org',
+			'@type'           => 'BreadcrumbList',
+			'itemListElement' => array(
+				array(
+					'@type'    => 'ListItem',
+					'position' => 1,
+					'name'     => __( 'Home', 'aladdin-evergreen-grid' ),
+					'item'     => $home,
+				),
+				array(
+					'@type'    => 'ListItem',
+					'position' => 2,
+					'name'     => $current_label,
+					'item'     => $current_url,
+				),
+			),
+		);
+
+		return '<script type="application/ld+json">' . wp_json_encode( $data, JSON_UNESCAPED_SLASHES | JSON_UNESCAPED_UNICODE ) . '</script>';
+	}
+
+	/**
+	 * ItemList JSON-LD listing all rendered items.
+	 * Helps Google + AI search recognize the page as a collection of indexable items.
+	 *
+	 * @param array  $items  Formatted item array.
+	 * @param string $heading Optional heading to use as the list name.
+	 * @return string
+	 */
+	protected static function render_itemlist_jsonld( $items, $heading = '' ) {
+		if ( empty( $items ) ) {
+			return '';
+		}
+
+		$elements = array();
+		$pos      = 0;
+		foreach ( $items as $item ) {
+			if ( empty( $item['link'] ) ) {
+				continue;
+			}
+			$pos++;
+			$elements[] = array(
+				'@type'    => 'ListItem',
+				'position' => $pos,
+				'url'      => $item['link'],
+				'name'     => isset( $item['title'] ) ? $item['title'] : '',
+			);
+		}
+
+		if ( empty( $elements ) ) {
+			return '';
+		}
+
+		$data = array(
+			'@context'        => 'https://schema.org',
+			'@type'           => 'ItemList',
+			'name'            => $heading ?: ( is_singular() ? get_the_title() : __( 'Items', 'aladdin-evergreen-grid' ) ),
+			'numberOfItems'   => count( $elements ),
+			'itemListElement' => $elements,
+		);
+
+		return '<script type="application/ld+json">' . wp_json_encode( $data, JSON_UNESCAPED_SLASHES | JSON_UNESCAPED_UNICODE ) . '</script>';
 	}
 
 	/**

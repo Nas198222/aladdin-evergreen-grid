@@ -46,6 +46,9 @@ export default function Edit( { attributes, setAttributes } ) {
 		perPage,
 		heading,
 		showLoadMore,
+		showBreadcrumb,
+		stickyControls,
+		emitItemList,
 	} = attributes;
 
 	const [ postTypes, setPostTypes ] = useState( [] );
@@ -224,6 +227,27 @@ export default function Edit( { attributes, setAttributes } ) {
 						label={ __( 'Show "Load more" button', 'aladdin-evergreen-grid' ) }
 						checked={ showLoadMore }
 						onChange={ ( v ) => setAttributes( { showLoadMore: v } ) }
+					/>
+					<ToggleControl
+						label={ __( 'Sticky controls on mobile', 'aladdin-evergreen-grid' ) }
+						help={ __( 'Pins search + filters to the top as the user scrolls on phones.', 'aladdin-evergreen-grid' ) }
+						checked={ stickyControls }
+						onChange={ ( v ) => setAttributes( { stickyControls: v } ) }
+					/>
+				</PanelBody>
+
+				<PanelBody title={ __( 'SEO + AI', 'aladdin-evergreen-grid' ) } initialOpen={ false }>
+					<ToggleControl
+						label={ __( 'Show breadcrumb', 'aladdin-evergreen-grid' ) }
+						help={ __( 'Renders a Home › Current breadcrumb + matching BreadcrumbList JSON-LD.', 'aladdin-evergreen-grid' ) }
+						checked={ showBreadcrumb }
+						onChange={ ( v ) => setAttributes( { showBreadcrumb: v } ) }
+					/>
+					<ToggleControl
+						label={ __( 'Emit ItemList JSON-LD', 'aladdin-evergreen-grid' ) }
+						help={ __( 'Outputs structured-data listing the grid items so Google + AI search treat the page as a collection.', 'aladdin-evergreen-grid' ) }
+						checked={ emitItemList }
+						onChange={ ( v ) => setAttributes( { emitItemList: v } ) }
 					/>
 				</PanelBody>
 			</InspectorControls>
