@@ -1,0 +1,47 @@
+{
+  "$schema": "https://playground.wordpress.net/blueprint-schema.json",
+  "landingPage": "/?p=evergreen-demo",
+  "preferredVersions": {
+    "php": "8.2",
+    "wp": "latest"
+  },
+  "phpExtensionBundles": ["kitchen-sink"],
+  "features": {
+    "networking": true
+  },
+  "login": true,
+  "steps": [
+    {
+      "step": "installPlugin",
+      "pluginData": {
+        "resource": "url",
+        "url": "https://github.com/Nas198222/aladdin-evergreen-grid/releases/download/v0.2.0/aladdin-evergreen-grid.zip"
+      },
+      "options": {
+        "activate": true
+      }
+    },
+    {
+      "step": "setSiteOptions",
+      "options": {
+        "blogname": "Aladdin Evergreen Grid — Live Demo",
+        "blogdescription": "Test the universal Gutenberg content grid block",
+        "permalink_structure": "/%postname%/"
+      }
+    },
+    {
+      "step": "writeFile",
+      "path": "/wordpress/wp-content/mu-plugins/seed-demo-content.php",
+      "data": "<?php\n/**\n * Plugin Name: Seed Demo Content\n * Description: Creates 8 sample posts + a demo page with the Evergreen Grid block.\n */\nadd_action( 'init', function () {\n    if ( get_option( 'aeg_demo_seeded' ) ) return;\n    $samples = array(\n        array( 'title' => 'Creamy Curry Yogurt Dressing',     'excerpt' => 'A velvety Mediterranean-style sauce with whole milk yogurt, curry, garlic, and lemon.' ),\n        array( 'title' => 'Easy Muhammara Recipe',            'excerpt' => 'Smoky roasted red pepper and walnut dip you can make in 25 minutes.' ),\n        array( 'title' => 'Lentil & Butternut Squash Bowl',   'excerpt' => 'A cozy bowl with lentils, quinoa, roasted butternut squash, kale, and orange vinaigrette.' ),\n        array( 'title' => 'Sweet Chili Beef Stew',            'excerpt' => 'Lamb meatballs in a rich tomato-pepper sauce with carrots and potatoes.' ),\n        array( 'title' => 'Turkish Green Beans (Zeytinyağlı)','excerpt' => 'Slow-braised green beans in olive oil with tomato. Serve warm or room temp.' ),\n        array( 'title' => 'Basic Homemade Hummus',            'excerpt' => 'Creamy chickpea and tahini dip topped with olive oil and paprika.' ),\n        array( 'title' => 'Roasted Cauliflower Tahini Bowl',  'excerpt' => 'Char-edged cauliflower over warm bulgur with tahini drizzle and herbs.' ),\n        array( 'title' => 'Mediterranean Chicken Kebabs',     'excerpt' => 'Marinated chicken thigh skewers with garlic-lemon yogurt and warm pita.' ),\n    );\n    $cats = array( 'Salads & Bowls', 'Sauces & Dips', 'Mains', 'Sides' );\n    foreach ( $cats as $cat ) wp_insert_term( $cat, 'category' );\n    foreach ( $samples as $i => $sample ) {\n        wp_insert_post( array(\n            'post_title'   => $sample['title'],\n            'post_excerpt' => $sample['excerpt'],\n            'post_status'  => 'publish',\n            'post_type'    => 'post',\n            'post_author'  => 1,\n            'post_content' => '<p>' . esc_html( $sample['excerpt'] ) . '</p><p>This is a demo post seeded for the Evergreen Grid Playground.</p>',\n            'post_category'=> array( get_cat_ID( $cats[ $i % count( $cats ) ] ) ),\n        ) );\n    }\n    // Demo page with the block embedded.\n    $page_id = wp_insert_post( array(\n        'post_title'   => 'Evergreen Grid Demo',\n        'post_name'    => 'evergreen-demo',\n        'post_status'  => 'publish',\n        'post_type'    => 'page',\n        'post_author'  => 1,\n        'post_content' => '<!-- wp:heading -->\\n<h2>Evergreen Grid — Live Demo</h2>\\n<!-- /wp:heading -->\\n\\n<!-- wp:paragraph -->\\n<p>Below is the <code>aladdin-evergreen/content-grid</code> block configured to show <strong>posts</strong> filtered by <strong>category</strong>. Try the search, click the filters, and hit \"Load more\".</p>\\n<!-- /wp:paragraph -->\\n\\n<!-- wp:aladdin-evergreen/content-grid {\"postType\":\"post\",\"taxonomy\":\"category\",\"columns\":3,\"perPage\":6,\"heading\":\"All Demo Posts\",\"showSearch\":true,\"showFilters\":true,\"showLoadMore\":true} /-->\\n\\n<!-- wp:paragraph -->\\n<p><em>The exact same block can render any post type — recipes, products, locations, FAQs, anything.</em></p>\\n<!-- /wp:paragraph -->',\n    ) );\n    update_option( 'show_on_front', 'page' );\n    update_option( 'page_on_front', $page_id );\n    update_option( 'aeg_demo_seeded', true );\n} );\n"
+    },
+    {
+      "step": "runPHP",
+      "code": "<?php require '/wordpress/wp-load.php'; flush_rewrite_rules();"
+    },
+    {
+      "step": "login",
+      "username": "admin",
+      "password": "password"
+    }
+  ]
+}
