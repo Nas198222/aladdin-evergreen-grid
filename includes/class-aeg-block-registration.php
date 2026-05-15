@@ -197,6 +197,18 @@ class AEG_Block_Registration {
 				'type'    => 'string',
 				'default' => '',
 			),
+			'eyebrow'     => array(
+				'type'    => 'string',
+				'default' => '',
+			),
+			'tagline'     => array(
+				'type'    => 'string',
+				'default' => '',
+			),
+			'featuredFirst' => array(
+				'type'    => 'boolean',
+				'default' => true,
+			),
 			'showLoadMore' => array(
 				'type'    => 'boolean',
 				'default' => true,
@@ -238,6 +250,9 @@ class AEG_Block_Registration {
 				'showBreadcrumb' => true,
 				'stickyControls' => true,
 				'emitItemList'   => true,
+				'eyebrow'        => '',
+				'tagline'        => '',
+				'featuredFirst'  => true,
 			)
 		);
 
@@ -253,6 +268,9 @@ class AEG_Block_Registration {
 		$show_breadcrumb = (bool) $attributes['showBreadcrumb'];
 		$sticky_controls = (bool) $attributes['stickyControls'];
 		$emit_item_list  = (bool) $attributes['emitItemList'];
+		$eyebrow         = sanitize_text_field( $attributes['eyebrow'] );
+		$tagline         = sanitize_text_field( $attributes['tagline'] );
+		$featured_first  = (bool) $attributes['featuredFirst'];
 
 		$controls_id = wp_unique_id( 'aeg-grid-' );
 
@@ -262,6 +280,9 @@ class AEG_Block_Registration {
 		$wrap_classes = 'aeg-grid aeg-grid--cols-' . (int) $columns;
 		if ( $sticky_controls ) {
 			$wrap_classes .= ' aeg-grid--sticky';
+		}
+		if ( $featured_first ) {
+			$wrap_classes .= ' aeg-grid--featured';
 		}
 
 		ob_start();
@@ -279,8 +300,23 @@ class AEG_Block_Registration {
 			data-per-page="<?php echo esc_attr( $per_page ); ?>"
 			data-show-load-more="<?php echo esc_attr( $show_load_more ? '1' : '0' ); ?>"
 		>
-			<?php if ( $heading ) : ?>
-				<h2 class="aeg-grid__heading"><?php echo esc_html( $heading ); ?></h2>
+			<?php if ( $heading || $eyebrow || $tagline ) : ?>
+				<header class="aeg-grid__hero">
+					<?php if ( $eyebrow ) : ?>
+						<div class="aeg-grid__eyebrow"><span class="aeg-grid__eyebrow-dot" aria-hidden="true">●</span> <?php echo esc_html( $eyebrow ); ?></div>
+					<?php endif; ?>
+					<?php if ( $heading ) : ?>
+						<h2 class="aeg-grid__heading"><?php echo esc_html( $heading ); ?></h2>
+					<?php endif; ?>
+					<?php if ( $tagline ) : ?>
+						<p class="aeg-grid__tagline"><?php echo esc_html( $tagline ); ?></p>
+					<?php endif; ?>
+					<svg class="aeg-grid__dingbat" aria-hidden="true" viewBox="0 0 40 8" width="40" height="8">
+						<circle cx="4" cy="4" r="2" fill="currentColor"/>
+						<line x1="10" y1="4" x2="30" y2="4" stroke="currentColor" stroke-width="1.5"/>
+						<circle cx="36" cy="4" r="2" fill="currentColor"/>
+					</svg>
+				</header>
 			<?php endif; ?>
 
 			<?php if ( $show_search || ( $show_filters && $taxonomy ) ) : ?>

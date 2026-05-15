@@ -15,10 +15,16 @@
  *   --aeg-font-body    = 'Poppins', sans-serif
  */
 
+/* Load Playfair Display for editorial card titles + hero.
+ * 1 weight only (700) + font-display:swap to avoid FOIT.
+ * Cached forever by Google Fonts CDN, ~30KB woff2. */
+@import url('https://fonts.googleapis.com/css2?family=Playfair+Display:ital,wght@0,700;1,700&display=swap');
+
 :root {
 	--aeg-orange: #E85D20;
 	--aeg-orange-dark: #D03D00;
 	--aeg-peach: #FBE2C5;
+	--aeg-peach-deep: #F4C499;
 	--aeg-cream: #FDF1E0;
 	--aeg-text: #2D2821;
 	--aeg-muted: #6B6258;
@@ -26,6 +32,7 @@
 	--aeg-white: #FFFEFE;
 	--aeg-font-heading: 'Catamaran', 'Poppins', -apple-system, sans-serif;
 	--aeg-font-body: 'Poppins', -apple-system, sans-serif;
+	--aeg-font-editorial: 'Playfair Display', 'Cormorant Garamond', Georgia, serif;
 }
 
 .aeg-grid {
@@ -39,14 +46,56 @@
 		box-sizing: border-box;
 	}
 
-	&__heading {
-		font-family: var(--aeg-font-heading);
-		font-weight: 800;
-		font-size: clamp(2rem, 3.5vw, 2.6rem);
-		letter-spacing: -0.5px;
+	/* ========== Editorial hero block ========== */
+	&__hero {
 		text-align: center;
-		margin: 0 0 24px;
+		max-width: 720px;
+		margin: 0 auto 48px;
+		padding: 16px 16px 0;
+	}
+
+	&__eyebrow {
+		font-family: var(--aeg-font-body);
+		font-size: 12px;
+		font-weight: 700;
+		letter-spacing: 4px;
+		text-transform: uppercase;
+		color: var(--aeg-orange);
+		margin: 0 0 18px;
+		display: inline-flex;
+		align-items: center;
+		gap: 8px;
+
+		&-dot {
+			color: var(--aeg-orange);
+			font-size: 10px;
+		}
+	}
+
+	&__heading {
+		font-family: var(--aeg-font-editorial);
+		font-weight: 700;
+		font-size: clamp(2.2rem, 5vw, 3.6rem);
+		line-height: 1.05;
+		letter-spacing: -1px;
+		text-align: center;
+		margin: 0 0 16px;
 		color: var(--aeg-text);
+	}
+
+	&__tagline {
+		font-family: var(--aeg-font-body);
+		font-size: 16px;
+		line-height: 1.6;
+		color: var(--aeg-muted);
+		margin: 0 0 18px;
+		font-weight: 400;
+	}
+
+	&__dingbat {
+		color: var(--aeg-orange);
+		margin: 14px auto 0;
+		display: block;
 	}
 
 	&__breadcrumb {
@@ -137,20 +186,21 @@
 	&__filter {
 		font-family: var(--aeg-font-body);
 		font-weight: 700;
-		font-size: 13px; /* bumped from 12px for WCAG legibility on small caps */
+		font-size: 13px;
 		letter-spacing: 1.5px;
 		text-transform: uppercase;
-		padding: 10px 20px;
+		padding: 10px 22px;
 		border-radius: 999px;
 		border: 1.5px solid var(--aeg-border);
 		background: var(--aeg-white);
 		color: var(--aeg-text);
 		cursor: pointer;
-		transition: all 0.15s ease;
+		transition: all 0.18s cubic-bezier(0.4, 0, 0.2, 1);
 
 		&:hover {
 			color: var(--aeg-orange);
 			border-color: var(--aeg-orange);
+			transform: translateY(-1px);
 		}
 
 		&:focus-visible {
@@ -159,14 +209,16 @@
 		}
 
 		&--active {
-			background: var(--aeg-orange-dark); /* darker orange → AA contrast vs white text */
+			background: var(--aeg-orange-dark);
 			color: #fff;
 			border-color: var(--aeg-orange-dark);
+			box-shadow: 0 4px 12px -2px rgba(208, 61, 0, 0.4);
 
 			&:hover {
 				color: #fff;
-				background: #B43400; /* deeper still on hover for clear interaction */
+				background: #B43400;
 				border-color: #B43400;
+				transform: translateY(-1px);
 			}
 		}
 	}
@@ -186,6 +238,23 @@
 	@media (min-width: 960px) {
 		&--cols-3 .aeg-grid__items { grid-template-columns: repeat(3, 1fr); }
 		&--cols-4 .aeg-grid__items { grid-template-columns: repeat(4, 1fr); }
+	}
+
+	/* ========== Featured first card — asymmetric magazine layout ========== */
+	@media (min-width: 960px) {
+		&--featured.aeg-grid--cols-3 .aeg-grid__items > .aeg-card-wrap:first-child,
+		&--featured.aeg-grid--cols-4 .aeg-grid__items > .aeg-card-wrap:first-child {
+			grid-column: span 2;
+
+			.aeg-card { flex-direction: row; }
+			.aeg-card__image { aspect-ratio: 4 / 3; flex: 1 1 55%; }
+			.aeg-card__body  { flex: 1 1 45%; justify-content: center; padding: 32px 36px; }
+			.aeg-card__title { font-size: 30px; }
+			.aeg-card__excerpt {
+				-webkit-line-clamp: 3;
+				font-size: 15px;
+			}
+		}
 	}
 
 	&__pagination {
@@ -278,8 +347,8 @@
 
 	&:hover,
 	&:focus-visible {
-		transform: translateY(-5px);
-		box-shadow: 0 18px 36px rgba(0, 0, 0, 0.08);
+		transform: translateY(-6px);
+		box-shadow: 0 24px 50px -10px rgba(232, 93, 32, 0.18), 0 6px 18px rgba(0, 0, 0, 0.06);
 		border-color: var(--aeg-orange);
 	}
 
@@ -292,6 +361,7 @@
 		aspect-ratio: 4 / 3;
 		overflow: hidden;
 		background: var(--aeg-cream);
+		position: relative;
 
 		img {
 			width: 100%;
@@ -300,10 +370,37 @@
 			display: block;
 			transition: transform 0.6s ease;
 		}
+
+		/* Warm gradient + "View Recipe →" label revealed on hover. */
+		&::after {
+			content: "View Recipe →";
+			position: absolute;
+			inset: auto 0 0 0;
+			padding: 18px 20px 22px;
+			background: linear-gradient(180deg, transparent 0%, rgba(232, 93, 32, 0.92) 60%, var(--aeg-orange-dark) 100%);
+			color: #fff;
+			font-family: var(--aeg-font-body);
+			font-weight: 700;
+			font-size: 13px;
+			letter-spacing: 2px;
+			text-transform: uppercase;
+			text-align: center;
+			opacity: 0;
+			transform: translateY(15%);
+			transition: opacity 0.25s ease, transform 0.35s ease;
+			pointer-events: none;
+		}
 	}
 
-	&:hover .aeg-card__image img {
-		transform: scale(1.06);
+	&:hover .aeg-card__image img,
+	&:focus-visible .aeg-card__image img {
+		transform: scale(1.08);
+	}
+
+	&:hover .aeg-card__image::after,
+	&:focus-visible .aeg-card__image::after {
+		opacity: 1;
+		transform: translateY(0);
 	}
 
 	&__body {
@@ -315,11 +412,11 @@
 	}
 
 	&__title {
-		font-family: var(--aeg-font-heading);
-		font-weight: 800;
+		font-family: var(--aeg-font-editorial);
+		font-weight: 700;
 		font-size: 22px;
 		line-height: 1.2;
-		letter-spacing: -0.3px;
+		letter-spacing: -0.4px;
 		margin: 0;
 		color: var(--aeg-text);
 		transition: color 0.15s;
