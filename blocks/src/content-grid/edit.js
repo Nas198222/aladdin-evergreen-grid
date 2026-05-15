@@ -274,7 +274,33 @@ export default function Edit( { attributes, setAttributes } ) {
 			</InspectorControls>
 
 			<div { ...blockProps }>
-				{ heading && <h2 className="aeg-grid__heading">{ heading }</h2> }
+				{ /* #3: Mirror the SSR editorial hero in the editor preview. */ }
+				{ ( eyebrow || heading || tagline ) && (
+					<header className="aeg-grid__hero" style={ { textAlign: 'center', maxWidth: 720, margin: '0 auto 32px', padding: '12px 12px 0' } }>
+						{ eyebrow && (
+							<div className="aeg-grid__eyebrow" style={ { color: '#D03D00', fontWeight: 700, fontSize: 12, letterSpacing: 4, textTransform: 'uppercase', marginBottom: 14 } }>
+								● { eyebrow }
+							</div>
+						) }
+						{ heading && (
+							<h2 className="aeg-grid__heading" style={ { fontFamily: '"Playfair Display", Georgia, serif', fontWeight: 700, fontSize: 'clamp(1.8rem, 4vw, 3rem)', lineHeight: 1.05, letterSpacing: '-1px', margin: '0 0 14px', color: '#2D2821' } }>
+								{ heading }
+							</h2>
+						) }
+						{ tagline && (
+							<p className="aeg-grid__tagline" style={ { color: '#6B6258', fontSize: 15, lineHeight: 1.6, margin: '0 0 14px' } }>
+								{ tagline }
+							</p>
+						) }
+						{ ( ( eyebrow ? 1 : 0 ) + ( heading ? 1 : 0 ) + ( tagline ? 1 : 0 ) >= 2 ) && (
+							<svg aria-hidden="true" viewBox="0 0 40 8" width="40" height="8" style={ { color: '#E85D20', display: 'block', margin: '6px auto 0' } }>
+								<circle cx="4" cy="4" r="2" fill="currentColor"/>
+								<line x1="10" y1="4" x2="30" y2="4" stroke="currentColor" strokeWidth="1.5"/>
+								<circle cx="36" cy="4" r="2" fill="currentColor"/>
+							</svg>
+						) }
+					</header>
+				) }
 				{ loading.preview || previewItems === null ? (
 					<Placeholder
 						icon="grid-view"

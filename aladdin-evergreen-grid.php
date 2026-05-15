@@ -3,7 +3,7 @@
  * Plugin Name:       Aladdin Evergreen Grid
  * Plugin URI:        https://github.com/Nas198222/aladdin-evergreen-grid
  * Description:       Universal Gutenberg content grid block for Aladdin Mediterranean Cuisine. Displays any post type (recipes, blog posts, locations, products, etc.) with filters, search, and pagination. Independent of Brett Shumaker's aladdins-customizations plugin.
- * Version:           0.6.0
+ * Version:           0.6.1
  * Requires at least: 6.4
  * Requires PHP:      8.0
  * Author:            Aladdin Mediterranean Cuisine
@@ -18,7 +18,7 @@ if ( ! defined( 'ABSPATH' ) ) {
 	exit;
 }
 
-define( 'AEG_VERSION', '0.6.0' );
+define( 'AEG_VERSION', '0.6.1' );
 define( 'AEG_PATH', plugin_dir_path( __FILE__ ) );
 define( 'AEG_URL', plugin_dir_url( __FILE__ ) );
 define( 'AEG_FILE', __FILE__ );

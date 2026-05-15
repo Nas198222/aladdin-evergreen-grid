@@ -167,6 +167,9 @@ class AEG_Grid {
 
 		this.inflight = null; // AbortController for the active fetch
 
+		// #5: Mark grid as hydrated so the load-more button is only visible when JS is alive.
+		this.root.setAttribute( 'data-aeg-hydrated', '1' );
+
 		// PHP already SSR'd the first page — don't refetch on mount.
 		this.bind();
 	}

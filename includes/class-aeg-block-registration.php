@@ -355,7 +355,11 @@ class AEG_Block_Registration {
 		?>
 		<?php if ( $show_breadcrumb ) : self::render_breadcrumb_html(); endif; ?>
 		<div <?php echo $wrapper_attrs; // phpcs:ignore WordPress.Security.EscapeOutput.OutputNotEscaped — pre-escaped above ?> id="<?php echo esc_attr( $controls_id ); ?>">
-			<?php if ( $heading || $eyebrow || $tagline ) : ?>
+			<?php
+			// #6: Only render dingbat when ≥2 hero elements present (no noise on minimal hero).
+			$hero_count = (int) ! empty( $eyebrow ) + (int) ! empty( $heading ) + (int) ! empty( $tagline );
+			if ( $hero_count > 0 ) :
+				?>
 				<header class="aeg-grid__hero">
 					<?php if ( $eyebrow ) : ?>
 						<div class="aeg-grid__eyebrow"><span class="aeg-grid__eyebrow-dot" aria-hidden="true">●</span> <?php echo esc_html( $eyebrow ); ?></div>
@@ -366,11 +370,13 @@ class AEG_Block_Registration {
 					<?php if ( $tagline ) : ?>
 						<p class="aeg-grid__tagline"><?php echo esc_html( $tagline ); ?></p>
 					<?php endif; ?>
-					<svg class="aeg-grid__dingbat" aria-hidden="true" viewBox="0 0 40 8" width="40" height="8">
-						<circle cx="4" cy="4" r="2" fill="currentColor"/>
-						<line x1="10" y1="4" x2="30" y2="4" stroke="currentColor" stroke-width="1.5"/>
-						<circle cx="36" cy="4" r="2" fill="currentColor"/>
-					</svg>
+					<?php if ( $hero_count >= 2 ) : ?>
+						<svg class="aeg-grid__dingbat" aria-hidden="true" viewBox="0 0 40 8" width="40" height="8">
+							<circle cx="4" cy="4" r="2" fill="currentColor"/>
+							<line x1="10" y1="4" x2="30" y2="4" stroke="currentColor" stroke-width="1.5"/>
+							<circle cx="36" cy="4" r="2" fill="currentColor"/>
+						</svg>
+					<?php endif; ?>
 				</header>
 			<?php endif; ?>
 

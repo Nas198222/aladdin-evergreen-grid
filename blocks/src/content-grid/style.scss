@@ -53,6 +53,12 @@
 		padding: 16px 16px 0;
 	}
 
+	/* #4: when the BLOCK is wide/full-aligned, the hero should breathe out too. */
+	&.alignwide &__hero,
+	&.alignfull &__hero {
+		max-width: 880px;
+	}
+
 	&__eyebrow {
 		font-family: var(--aeg-font-body);
 		font-size: 12px;
@@ -198,8 +204,9 @@
 		transition: all 0.18s cubic-bezier(0.4, 0, 0.2, 1);
 
 		&:hover {
-			color: var(--aeg-orange);
-			border-color: var(--aeg-orange);
+			/* #7: WCAG AA — orange-dark passes 4.5:1 on white for small text. */
+			color: var(--aeg-orange-dark);
+			border-color: var(--aeg-orange-dark);
 			transform: translateY(-1px);
 		}
 
@@ -246,13 +253,31 @@
 		&--featured.aeg-grid--cols-4 .aeg-grid__items > .aeg-card-wrap:first-child {
 			grid-column: span 2;
 
-			.aeg-card { flex-direction: row; }
+			.aeg-card { flex-direction: row; position: relative; }
 			.aeg-card__image { aspect-ratio: 4 / 3; flex: 1 1 55%; }
-			.aeg-card__body  { flex: 1 1 45%; justify-content: center; padding: 32px 36px; }
+			.aeg-card__body  { flex: 1 1 45%; justify-content: center; padding: 32px 36px; position: relative; }
 			.aeg-card__title { font-size: 30px; }
 			.aeg-card__excerpt {
 				-webkit-line-clamp: 3;
 				font-size: 15px;
+			}
+
+			/* #2: On the featured card, the hover overlay covers the WHOLE card
+			 * (image + body) — not just the image half. */
+			.aeg-card__overlay {
+				inset: 0;
+				display: flex;
+				align-items: flex-end;
+				padding: 28px 36px;
+				background: linear-gradient(
+					90deg,
+					transparent 0%,
+					rgba(232, 93, 32, 0.55) 45%,
+					rgba(208, 61, 0, 0.9) 100%
+				);
+				justify-content: flex-end;
+				transform: translateX(15%);
+				transition: opacity 0.25s ease, transform 0.35s ease;
 			}
 		}
 	}
@@ -260,6 +285,11 @@
 	&__pagination {
 		text-align: center;
 		margin-top: 48px;
+	}
+
+	/* #5: Hide load-more before JS hydrates the grid — JS sets [data-aeg-hydrated=1] on .aeg-grid. */
+	&:not([data-aeg-hydrated="1"]) &__load-more {
+		display: none;
 	}
 
 	&__load-more {
