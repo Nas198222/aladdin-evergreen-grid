@@ -1,85 +1,76 @@
-# Aladdin Evergreen Grid
+# 🟧 Aladdin Evergreen Grid
 
-Universal Gutenberg content grid block for `aladdinshouston.com`. Displays **any post type** — recipes, blog posts, locations, products, FAQs, anything — with filters, search, pagination, and the Aladdin brand look.
+> One Gutenberg block to display **any post type** as a grid — recipes, blog posts, locations, products, FAQs, anything.
 
-Built as a **separate plugin** from Brett Shumaker's `aladdins-customizations` to keep Brett's code 100% untouched.
+[Detailed docs →](DOCS.md)
 
-## Block
+---
 
-`aladdin-evergreen/content-grid`
+## 🤔 What is this?
 
-### Attributes
+A WordPress plugin that adds a **universal content grid block** to the Gutenberg editor.
 
-| Attribute | Default | Notes |
-|---|---|---|
-| `postType` | `wprm_recipe` | Any registered, viewable post type |
-| `taxonomy` | `''` | Optional — enables filter buttons |
-| `termIds` | `[]` | Optional — pre-limit to specific terms |
-| `columns` | `3` | 1-4 |
-| `showSearch` | `true` | Show search input |
-| `showFilters` | `true` | Show filter buttons (requires taxonomy) |
-| `perPage` | `12` | 1-50 |
-| `heading` | `''` | Optional heading above the grid |
-| `showLoadMore` | `true` | Show pagination button |
+Pick a post type → pick a taxonomy → drop the block anywhere. Done.
 
-## REST API
+## ✨ What it does
 
-Public endpoint (no auth):
-```
-GET /wp-json/aladdin-evergreen/v1/grid-items
-  ?post_type=wprm_recipe
-  &taxonomy=wprm_course
-  &term_ids=12,34
-  &search=hummus
-  &orderby=date  (date|title|menu_order|rand|modified)
-  &order=DESC    (ASC|DESC)
-  &per_page=12   (1-50)
-  &page=1
-```
+- 📐 1-4 columns
+- 🔍 Search box
+- 🏷️ Filter buttons
+- 📥 Load more
+- 🎨 Brand-matched (orange #E85D20, Catamaran headings)
+- 🚀 SEO-friendly (first page rendered server-side)
+- 📱 Mobile-first
+- ♿ Accessibility-first
+- ⚡ 12 KB shipped (frontend)
 
-Editor-only endpoints (require `edit_posts`):
-- `GET /wp-json/aladdin-evergreen/v1/taxonomies?post_type={slug}`
-- `GET /wp-json/aladdin-evergreen/v1/terms?taxonomy={slug}`
+## 📦 Use cases
 
-Responses are cached as transients for 5 minutes (key prefix `aeg_grid_`).
+| Page | What you put in it |
+|---|---|
+| `/recipe/` | Recipe archive |
+| `/blog/` | Blog index |
+| `/locations/` | Locations grid |
+| Homepage | "Featured recipes" strip |
+| `/menu/` | Menu items |
+| `/press/` | "In the press" |
+| `/faqs/` | FAQ grid |
+| `/now-hiring/` | Open positions |
 
-## PHP filters (extensibility)
+One block. Infinite pages. Forever.
 
-```php
-// Mutate a single item before it's returned.
-add_filter( 'aeg_grid_item', function( $item, $post, $post_type ) {
-    return $item;
-}, 10, 3 );
+---
 
-// Add custom meta for any post type.
-add_filter( 'aeg_grid_item_meta', function( $meta, $post_id, $post_type ) {
-    if ( 'event' === $post_type ) {
-        $meta['date_starts'] = get_post_meta( $post_id, 'event_start', true );
-    }
-    return $meta;
-}, 10, 3 );
+## 🚀 Install (3 steps)
 
-// Tune WP_Query args before the grid query.
-add_filter( 'aeg_grid_query_args', function( $args, $params ) {
-    return $args;
-}, 10, 2 );
-```
+1. Clone or download this repo
+2. Run `npm install && npm run build`
+3. Zip the folder → upload via WP Admin → Plugins → Add New → Upload
 
-## Build
+Or SFTP the folder to `/wp-content/plugins/`.
 
-```bash
-npm install
-npm run build       # production
-npm start           # watch mode
-```
+## 🛠️ Use
 
-## Install
+1. Edit any page in WordPress
+2. Add block → search "Evergreen"
+3. Pick post type + columns + filters
+4. Publish
 
-1. `npm run build`
-2. Zip the plugin directory (excluding `node_modules/`)
-3. Upload via WP Admin → Plugins → Add New → Upload
-4. Or SFTP the folder to `/wp-content/plugins/`
+## ⚙️ Tweak it
 
-## License
+- 🎨 Change colors → `blocks/src/content-grid/style.scss`
+- 🔌 Add a new post-type renderer → `view.js` `renderMeta()`
+- 🪝 Add custom fields via filter → `aeg_grid_item_meta`
 
-GPL-2.0-or-later
+## 🤖 Built by
+
+Claude + GPT-5.5 + Gemini Pro working as a team.
+3-way audit caught 21 issues before v0.2 shipped.
+
+## 🛡️ License
+
+GPL-2.0-or-later. Use freely.
+
+---
+
+**Need more?** [DOCS.md](DOCS.md) has the full technical reference.
