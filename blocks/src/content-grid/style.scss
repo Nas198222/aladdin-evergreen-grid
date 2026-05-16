@@ -111,7 +111,8 @@
 
 		a {
 			color: var(--aeg-text);
-			text-decoration: none;
+			text-decoration: underline;
+			text-underline-offset: 2px;
 			transition: color 0.15s;
 
 			&:hover,
